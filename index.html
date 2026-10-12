@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MicroLabs Worker Monitor — Progress Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f7ff', 100: '#e0effe', 200: '#b9dffb',
+                            300: '#7cc3f7', 400: '#36a5f0', 500: '#0c87e0',
+                            600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a', 950: '#172554'
+                        },
+                        cyber: { 500: '#22c55e', 600: '#16a34a' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f1f5f9; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Locked overlay */
+        .locked-area { position: relative; }
+        .locked-area.locked::before {
+            content: '';
+            position: absolute; inset: 0;
+            background: rgba(255,255,255,0.6);
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+            border-radius: inherit; z-index: 5;
+        }
+        .locked-area.locked .lock-icon-overlay {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%,-50%); z-index: 10;
+            display: flex; flex-direction: column; align-items: center;
+            pointer-events: none;
+        }
+        .locked-area .lock-icon-overlay { display: none; }
+        .locked-area.locked .lock-icon-overlay { display: flex; }
+
+        .stat-card { transition: all 0.3s ease; }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(0,0,0,0.07); }
+        .slide-up { animation: slideUp 0.5s ease-out; }
+        @keyframes slideUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+        .pulse-dot { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+        .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.3); }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        /* Copy toast */
+        .toast-copy {
+            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: #1e293b; color: white; padding: 10px 24px;
+            border-radius: 12px; font-size: 13px; font-weight: 600;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            z-index: 999; opacity: 0; transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        .toast-copy.show { opacity: 1; }
+    </style>
+</head>
+<body>
+
+<!-- ==================== TOAST ==================== -->
+<div id="toast" class="toast-copy"></div>
+
+<!-- ==================== MAIN APP ==================== -->
+<div id="app" class="min-h-screen max-w-6xl mx-auto bg-slate-50 shadow-2xl relative">
+
+    <!-- ===== AUTH / LOGIN VIEW ===== -->
+    <div id="view-auth" class="min-h-screen flex flex-col md:flex-row">
+        <!-- Left Brand -->
+        <div class="md:w-5/12 bg-gradient-to-br from-slate-950 via-brand-900 to-slate-900 text-white p-8 md:p-10 flex flex-col justify-between relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-80 h-80 bg-brand-600/10 rounded-full blur-3xl"></div>
+            <div>
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-12 h-12 rounded-2xl bg-brand-600 flex items-center justify-center shadow-lg shadow-brand-600/30">
+                        <i class="fa-solid fa-microchip text-2xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold">MicroLabs <span class="text-brand-400">Monitor</span></h1>
+                        <p class="text-[10px] text-slate-400 uppercase tracking-widest">Worker Progress Console</p>
+                    </div>
+                </div>
+                <p class="text-sm text-slate-300 leading-relaxed mb-8">
+                    Track your task earnings, session history, performance analytics, and payout records — all in one place.
+                </p>
+                <div class="space-y-3 text-sm text-slate-400">
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-chart-line text-brand-400 w-4"></i><span>Real-time earnings & session tracking</span></div>
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-clock text-brand-400 w-4"></i><span>Historical work logs with filters</span></div>
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-chart-pie text-brand-400 w-4"></i><span>Performance analytics & trends</span></div>
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-wallet text-brand-400 w-4"></i><span>Payment records & payout history</span></div>
+                </div>
+            </div>
+            <div class="text-[10px] text-slate-600">© 2026 MicroLabs Kenya • Monitoring Console v2.0</div>
+        </div>
+
+        <!-- Right Auth -->
+        <div class="md:w-7/12 bg-white p-8 md:p-12 flex flex-col justify-center">
+            <div class="max-w-md mx-auto w-full">
+                <div class="mb-8">
+                    <h2 class="text-2xl font-bold text-slate-900">Worker Portal</h2>
+                    <p class="text-sm text-slate-500 mt-1">Sign in to access your progress dashboard</p>
+                </div>
+
+                <!-- Auth Tabs -->
+                <div class="flex border-b border-slate-200 mb-6">
+                    <button id="auth-tab-register" class="auth-tab px-4 py-2.5 text-sm font-semibold border-b-2 border-brand-600 text-brand-600" onclick="switchAuth('register')">Register</button>
+                    <button id="auth-tab-login" class="auth-tab px-4 py-2.5 text-sm font-semibold border-b-2 border-transparent text-slate-400" onclick="switchAuth('login')">Sign In</button>
+                </div>
+
+                <!-- Register Form -->
+                <form id="form-register" class="space-y-4">
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Full Name</label>
+                        <input type="text" id="reg-name" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="e.g. Jane Wanjiku">
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Email Address</label>
+                        <input type="email" id="reg-email" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="you@example.com">
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">M-Pesa Phone</label>
+                        <div class="flex">
+                            <span class="inline-flex items-center px-3 py-3 border border-r-0 border-slate-200 rounded-l-xl bg-slate-50 text-xs font-bold text-slate-500">+254</span>
+                            <input type="tel" id="reg-phone" pattern="[0-9]{9}" required class="flex-1 px-4 py-3 border border-slate-200 rounded-r-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="712345678">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Create Password</label>
+                        <input type="password" id="reg-pass" minlength="6" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="Min 6 characters">
+                    </div>
+                    <button type="submit" class="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl shadow-lg shadow-brand-600/20 transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-user-plus"></i> Register & Link Account
+                    </button>
+                    <p class="text-[10px] text-slate-400 text-center">Account links to your MicroLabs worker profile</p>
+                </form>
+
+                <!-- Login Form (hidden) -->
+                <form id="form-login" class="space-y-4 hidden">
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Email Address</label>
+                        <input type="email" id="login-email" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="you@example.com">
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Password</label>
+                        <input type="password" id="login-pass" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="Enter password">
+                    </div>
+                    <button type="submit" class="w-full py-3.5 bg-slate-900 hover:bg-slate-950 text-white font-semibold rounded-xl shadow-lg shadow-slate-900/20 transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i> Sign In
+                    </button>
+                    <p class="text-[10px] text-slate-400 text-center">Demo: any email/password works</p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== DASHBOARD VIEW ===== -->
+    <div id="view-dashboard" class="hidden min-h-screen flex flex-col bg-slate-50">
+
+        <!-- TOP HEADER -->
+        <header class="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-50">
+            <div class="flex items-center justify-between px-4 md:px-6 py-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-sm">
+                        <i class="fa-solid fa-microchip text-sm"></i>
+                    </div>
+                    <div>
+                        <span class="font-bold text-slate-900 text-sm">MicroLabs Monitor</span>
+                        <span class="text-[9px] text-slate-400 block leading-tight">Worker Progress Console</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <!-- Verification badge -->
+                    <div id="badge-locked" class="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-100 text-amber-700 text-[10px] font-bold">
+                        <i class="fa-solid fa-lock text-xs"></i> Locked
+                    </div>
+                    <div id="badge-unlocked" class="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold">
+                        <i class="fa-solid fa-shield-check text-xs"></i> Verified
+                    </div>
+                    <!-- Wallet -->
+                    <div class="bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-3.5 py-1.5 flex items-center gap-1.5 text-xs font-bold shadow-sm">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                        <span id="header-wallet">KES 0.00</span>
+                    </div>
+                    <!-- User -->
+                    <div class="flex items-center gap-2 pl-3 border-l border-slate-200">
+                        <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600" id="header-avatar">U</div>
+                        <span class="hidden md:block text-xs font-semibold text-slate-700" id="header-name">Worker</span>
+                        <button onclick="logout()" class="text-slate-400 hover:text-red-500 transition ml-1"><i class="fa-solid fa-power-off text-xs"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Tabs -->
+            <div class="flex px-4 md:px-6 gap-1 overflow-x-auto no-scrollbar pb-0.5">
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-brand-600 text-brand-600 whitespace-nowrap" data-tab="tab-overview" onclick="switchTab('tab-overview')">
+                    <i class="fa-solid fa-gauge-high mr-1.5"></i>Overview
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-earnings" onclick="switchTab('tab-earnings')">
+                    <i class="fa-solid fa-wallet mr-1.5"></i>Earnings
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-analytics" onclick="switchTab('tab-analytics')">
+                    <i class="fa-solid fa-chart-line mr-1.5"></i>Analytics
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-history" onclick="switchTab('tab-history')">
+                    <i class="fa-solid fa-clock-rotate-left mr-1.5"></i>Work History
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-payments" onclick="switchTab('tab-payments')">
+                    <i class="fa-solid fa-credit-card mr-1.5"></i>Payouts
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-unlock" onclick="switchTab('tab-unlock')">
+                    <i class="fa-solid fa-key mr-1.5"></i>Unlock Dashboard
+                </button>
+            </div>
+        </header>
+
+        <!-- MAIN CONTENT -->
+        <main class="flex-1 p-4 md:p-6 overflow-y-auto pb-24">
+
+            <!-- ========== TAB: OVERVIEW ========== -->
+            <section id="tab-overview" class="dash-content space-y-5">
+
+                <!-- LOCKED BANNER (shown when not verified) -->
+                <div id="locked-banner" class="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-5 shadow-lg">
+                    <div class="flex items-start gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl"><i class="fa-solid fa-lock"></i></div>
+                        <div>
+                            <h3 class="font-bold text-lg">Dashboard Locked</h3>
+                            <p class="text-sm text-white/80 mt-1">Your progress data, earnings, and analytics are hidden until you verify your worker credentials.</p>
+                            <button onclick="switchTab('tab-unlock')" class="mt-3 px-5 py-2 bg-white text-amber-700 font-bold rounded-xl text-xs shadow-lg hover:bg-amber-50 transition">
+                                <i class="fa-solid fa-key mr-1.5"></i>Unlock Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Cards (4) — all locked until verified -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                    <!-- Total Earned -->
+                    <div class="locked-area locked stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="lock-icon-overlay">
+                            <i class="fa-solid fa-lock text-slate-300 text-xl mb-1"></i>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Earned</span>
+                            <span class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm"><i class="fa-solid fa-wallet"></i></span>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-2xl font-bold text-slate-300">KES --</span>
+                            <span class="text-[10px] text-slate-300 block">Lifetime earnings</span>
+                        </div>
+                    </div>
+                    <!-- Hours Worked -->
+                    <div class="locked-area locked stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="lock-icon-overlay">
+                            <i class="fa-solid fa-lock text-slate-300 text-xl mb-1"></i>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hours Logged</span>
+                            <span class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm"><i class="fa-solid fa-clock"></i></span>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-2xl font-bold text-slate-300">--</span>
+                            <span class="text-[10px] text-slate-300 block">Total verified hours</span>
+                        </div>
+                    </div>
+                    <!-- Sessions -->
+                    <div class="locked-area locked stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="lock-icon-overlay">
+                            <i class="fa-solid fa-lock text-slate-300 text-xl mb-1"></i>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sessions Done</span>
+                            <span class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center text-sm"><i class="fa-solid fa-list-check"></i></span>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-2xl font-bold text-slate-300">--</span>
+                            <span class="text-[10px] text-slate-300 block">Completed task sessions</span>
+                        </div>
+                    </div>
+                    <!-- Accuracy -->
+                    <div class="locked-area locked stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="lock-icon-overlay">
+                            <i class="fa-solid fa-lock text-slate-300 text-xl mb-1"></i>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Accuracy Rate</span>
+                            <span class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm"><i class="fa-solid fa-bullseye"></i></span>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-2xl font-bold text-slate-300">--</span>
+                            <span class="text-[10px] text-slate-300 block">Quality score</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity (locked) -->
+                <div class="locked-area locked bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                    <div class="lock-icon-overlay">
+                        <i class="fa-solid fa-lock text-slate-300 text-2xl mb-1"></i>
+                        <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="font-bold text-slate-400 text-sm"><i class="fa-regular fa-clock text-slate-300 mr-2"></i>Recent Activity</h4>
+                        <span class="text-xs text-slate-300 font-semibold">View All</span>
+                    </div>
+                    <div class="text-center py-6 text-slate-300">
+                        <i class="fa-regular fa-clock text-3xl block mb-2 opacity-40"></i>
+                        <span class="text-sm">No activity data available</span>
+                    </div>
+                </div>
+
+                <!-- Quick unlock card -->
+                <div class="bg-gradient-to-r from-indigo-50 to-brand-50 border border-indigo-100 rounded-2xl p-5 flex items-center justify-between">
+                    <div>
+                        <h4 class="font-bold text-indigo-800 text-sm">Want to see your real progress?</h4>
+                        <p class="text-xs text-indigo-600 mt-1">Enter your worker verification code to unlock all data.</p>
+                    </div>
+                    <button onclick="switchTab('tab-unlock')" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20 transition-all whitespace-nowrap">
+                        Unlock <i class="fa-solid fa-arrow-right ml-1.5"></i>
+                    </button>
+                </div>
+            </section>
+
+            <!-- ========== TAB: EARNINGS ========== -->
+            <section id="tab-earnings" class="dash-content hidden space-y-5">
+                <div class="locked-area locked">
+                    <div class="lock-icon-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                        <i class="fa-solid fa-lock text-slate-300 text-3xl mb-2"></i>
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="opacity-30 pointer-events-none">
+                        <div><h3 class="text-lg font-bold text-slate-900">Earnings Breakdown</h3><p class="text-xs text-slate-500 mt-1">Your income from all task sessions</p></div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">This Week</span>
+                                <p class="text-2xl font-bold text-slate-900 mt-1">KES 0</p>
+                            </div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">This Month</span>
+                                <p class="text-2xl font-bold text-slate-900 mt-1">KES 0</p>
+                            </div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">Pending</span>
+                                <p class="text-2xl font-bold text-amber-600 mt-1">KES 0</p>
+                            </div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">Paid Out</span>
+                                <p class="text-2xl font-bold text-emerald-600 mt-1">KES 0</p>
+                            </div>
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mt-4">
+                            <h4 class="text-sm font-bold text-slate-900 mb-3">Daily Earnings (Last 7 Days)</h4>
+                            <canvas id="earnings-chart" height="180"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: ANALYTICS ========== -->
+            <section id="tab-analytics" class="dash-content hidden space-y-5">
+                <div class="locked-area locked">
+                    <div class="lock-icon-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                        <i class="fa-solid fa-lock text-slate-300 text-3xl mb-2"></i>
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="opacity-30 pointer-events-none">
+                        <div><h3 class="text-lg font-bold text-slate-900">Performance Analytics</h3><p class="text-xs text-slate-500 mt-1">Deep insights into your work quality and trends</p></div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Task Distribution</h4>
+                                <canvas id="tasks-chart" height="200"></canvas>
+                            </div>
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Hourly Performance</h4>
+                                <canvas id="hourly-chart" height="200"></canvas>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 mt-4">
+                            <div class="bg-gradient-to-br from-brand-600 to-brand-700 text-white p-4 rounded-2xl">
+                                <span class="text-[10px] font-semibold uppercase text-brand-200">Best Day</span>
+                                <p class="text-xl font-bold mt-1">--</p>
+                            </div>
+                            <div class="bg-gradient-to-br from-emerald-600 to-emerald-700 text-white p-4 rounded-2xl">
+                                <span class="text-[10px] font-semibold uppercase text-emerald-200">Avg Session</span>
+                                <p class="text-xl font-bold mt-1">--</p>
+                            </div>
+                            <div class="bg-gradient-to-br from-purple-600 to-purple-700 text-white p-4 rounded-2xl">
+                                <span class="text-[10px] font-semibold uppercase text-purple-200">Top Task</span>
+                                <p class="text-lg font-bold mt-1">--</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: WORK HISTORY ========== -->
+            <section id="tab-history" class="dash-content hidden space-y-4">
+                <div class="locked-area locked">
+                    <div class="lock-icon-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                        <i class="fa-solid fa-lock text-slate-300 text-3xl mb-2"></i>
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="opacity-30 pointer-events-none">
+                        <div><h3 class="text-lg font-bold text-slate-900">Work Session History</h3><p class="text-xs text-slate-500 mt-1">Complete log of all your task sessions</p></div>
+                        <div class="flex gap-2 mt-4 overflow-x-auto no-scrollbar">
+                            <button class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">All</button>
+                            <button class="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold">Completed</button>
+                            <button class="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold">Partial</button>
+                        </div>
+                        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm mt-4 overflow-hidden">
+                            <table class="w-full text-xs">
+                                <thead><tr class="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px]"><th class="text-left p-3 font-semibold">Date</th><th class="text-left p-3 font-semibold">Task</th><th class="text-left p-3 font-semibold">Duration</th><th class="text-left p-3 font-semibold">Earnings</th><th class="text-left p-3 font-semibold">Status</th></tr></thead>
+                                <tbody><tr><td colspan="5" class="p-8 text-center text-slate-300"><i class="fa-regular fa-clock text-2xl block mb-2 opacity-40"></i>No session history available</td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 mt-4">
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center"><span class="text-[10px] font-bold text-slate-400 uppercase block">Total Sessions</span><span class="text-xl font-bold text-slate-300 mt-1 block">0</span></div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center"><span class="text-[10px] font-bold text-slate-400 uppercase block">Total Hours</span><span class="text-xl font-bold text-slate-300 mt-1 block">0.0</span></div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center"><span class="text-[10px] font-bold text-slate-400 uppercase block">Total KES</span><span class="text-xl font-bold text-slate-300 mt-1 block">0</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: PAYOUTS ========== -->
+            <section id="tab-payments" class="dash-content hidden space-y-4">
+                <div class="locked-area locked">
+                    <div class="lock-icon-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                        <i class="fa-solid fa-lock text-slate-300 text-3xl mb-2"></i>
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="opacity-30 pointer-events-none">
+                        <div><h3 class="text-lg font-bold text-slate-900">Payment & Payout Records</h3><p class="text-xs text-slate-500 mt-1">Track all your disbursements and payment method</p></div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase block">Next Payout</span>
+                                <p class="text-2xl font-bold text-slate-900 mt-2">KES 0.00</p>
+                                <span class="text-[10px] text-slate-400">Est. on completion</span>
+                            </div>
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase block">Last Payout</span>
+                                <p class="text-2xl font-bold text-slate-900 mt-2">KES 0.00</p>
+                                <span class="text-[10px] text-slate-400">--</span>
+                            </div>
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase block">Payment Method</span>
+                                <p class="text-lg font-bold text-slate-900 mt-2 flex items-center gap-2"><i class="fa-regular fa-circle-question text-slate-300"></i> Not Set</p>
+                                <span class="text-[10px] text-slate-400">Configure in main site</span>
+                            </div>
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mt-4">
+                            <h4 class="text-sm font-bold text-slate-900 mb-3">Payout History</h4>
+                            <div class="text-center py-8 text-slate-300"><i class="fa-regular fa-receipt text-3xl block mb-2 opacity-40"></i>No payout records</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: UNLOCK DASHBOARD (Proxy Payment + Verification) ========== -->
+            <section id="tab-unlock" class="dash-content hidden space-y-5">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">Unlock Your Dashboard</h3>
+                    <p class="text-xs text-slate-500">Complete these steps to access your full monitoring features</p>
+                </div>
+
+                <!-- Step Progress -->
+                <div class="flex items-center gap-2 text-xs">
+                    <div class="flex items-center gap-1.5" id="unlock-step1">
+                        <span class="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-[10px] font-bold">1</span>
+                        <span class="text-slate-400">Pay KES 1,500</span>
+                    </div>
+                    <span class="text-slate-200"><i class="fa-solid fa-chevron-right"></i></span>
+                    <div class="flex items-center gap-1.5" id="unlock-step2">
+                        <span class="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-[10px] font-bold">2</span>
+                        <span class="text-slate-400">Get Code</span>
+                    </div>
+                    <span class="text-slate-200"><i class="fa-solid fa-chevron-right"></i></span>
+                    <div class="flex items-center gap-1.5" id="unlock-step3">
+                        <span class="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-[10px] font-bold">3</span>
+                        <span class="text-slate-400">Verify</span>
+                    </div>
+                </div>
+
+                <!-- STEP 1: Pay for Proxy -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center"><i class="fa-solid fa-wifi text-lg"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Step 1: Pay KES 1,500 for Proxy Access</h4>
+                            <p class="text-[10px] text-slate-500">One-time payment to unlock your worker monitoring dashboard</p>
+                        </div>
+                    </div>
+
+                    <!-- Payment methods grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Paybill -->
+                        <div class="bg-slate-50 rounded-xl p-5 border border-slate-100">
+                            <div class="flex items-center gap-2 mb-3">
+                                <div class="w-8 h-8 rounded-lg bg-brand-100 text-brand-600 flex items-center justify-center"><i class="fa-solid fa-building-columns"></i></div>
+                                <span class="text-sm font-bold text-slate-900">Paybill</span>
+                            </div>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between"><span class="text-slate-500">Business No:</span><span class="font-bold text-slate-900 font-mono" id="paybill-number">522522</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Account:</span><span class="font-bold text-slate-900 font-mono" id="paybill-account">ML-WORKER-2026</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Amount:</span><span class="font-bold text-emerald-600">KES 1,500</span></div>
+                            </div>
+                            <button onclick="copyPaybill()" class="mt-4 w-full py-2.5 bg-slate-900 hover:bg-slate-950 text-white rounded-xl text-[11px] font-semibold transition-all flex items-center justify-center gap-2">
+                                <i class="fa-regular fa-copy"></i> Copy Paybill Details
+                            </button>
+                        </div>
+
+                        <!-- Till -->
+                        <div class="bg-slate-50 rounded-xl p-5 border border-slate-100">
+                            <div class="flex items-center gap-2 mb-3">
+                                <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-store"></i></div>
+                                <span class="text-sm font-bold text-slate-900">Till Number</span>
+                            </div>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between"><span class="text-slate-500">Till No:</span><span class="font-bold text-slate-900 font-mono" id="till-number">587698</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Amount:</span><span class="font-bold text-emerald-600">KES 1,500</span></div>
+                            </div>
+                            <button onclick="copyTill()" class="mt-4 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-semibold transition-all flex items-center justify-center gap-2">
+                                <i class="fa-regular fa-copy"></i> Copy Till Details
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- M-Pesa instructions -->
+                    <div class="mt-4 p-4 bg-brand-50 border border-brand-100 rounded-xl">
+                        <p class="text-xs font-semibold text-brand-700 mb-2"><i class="fa-solid fa-circle-info mr-1.5"></i>How to pay via M-Pesa:</p>
+                        <ol class="text-[11px] text-slate-600 space-y-1 list-decimal list-inside">
+                            <li>Go to <strong>M-Pesa</strong> → <strong>Lipa na M-Pesa</strong></li>
+                            <li>Choose <strong>Paybill</strong> or <strong>Buy Goods</strong> (Till)</li>
+                            <li>Enter the number shown above</li>
+                            <li>Enter <strong>KES 1,500</strong> and your PIN</li>
+                            <li>You'll receive an SMS with a <strong>transaction code</strong></li>
+                        </ol>
+                    </div>
+                </div>
+
+                <!-- STEP 2: Enter Transaction Code to Get Verification Code -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-check-double text-lg"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Step 2: Verify Payment & Get Your Code</h4>
+                            <p class="text-[10px] text-slate-500">Enter the M-Pesa transaction code from your SMS</p>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3">
+                        <input type="text" id="txn-code-input" class="flex-1 px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50 font-mono" placeholder="e.g. QWE12RT34Y56">
+                        <button onclick="verifyPayment()" class="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl text-xs shadow-lg shadow-brand-600/20 transition-all">
+                            <i class="fa-solid fa-check mr-1.5"></i>Verify
+                        </button>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2">The transaction code is in your M-Pesa confirmation SMS after payment</p>
+
+                    <!-- Verification Code Display (shown after payment verified) -->
+                    <div id="verification-code-box" class="hidden mt-5 p-5 bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-200 rounded-2xl">
+                        <div class="flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl"><i class="fa-solid fa-key"></i></div>
+                            <div>
+                                <span class="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Your Verification Code</span>
+                                <p class="text-2xl font-bold text-emerald-800 font-mono tracking-wider mt-1" id="generated-code">ML-XXXXX</p>
+                                <p class="text-[10px] text-emerald-600 mt-1">Use this code in Step 3 to unlock your dashboard</p>
+                            </div>
+                        </div>
+                        <button onclick="copyCode()" class="mt-4 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2">
+                            <i class="fa-regular fa-copy"></i> Copy Verification Code
+                        </button>
+                        <p class="text-[10px] text-slate-500 mt-2 text-center">Save this code. You'll need it in the Clock-In tab of the main MicroLabs site.</p>
+                    </div>
+                </div>
+
+                <!-- STEP 3: Enter Verification + Proxy to Unlock -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center"><i class="fa-solid fa-shield-halved text-lg"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Step 3: Enter Credentials to Unlock Dashboard</h4>
+                            <p class="text-[10px] text-slate-500">Use the verification code from above + your proxy details</p>
+                        </div>
+                    </div>
+
+                    <form id="unlock-form" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Verification Code</label>
+                            <input type="text" id="unlock-code" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50 font-mono" placeholder="ML-XXXXX">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Proxy Server IP:Port</label>
+                            <input type="text" id="unlock-proxy" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="e.g. 192.168.1.100:8080">
+                            <p class="text-[10px] text-slate-400 mt-1">Obtain proxy details from MicroLabs management</p>
+                        </div>
+                        <button type="submit" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-unlock"></i> <span>Unlock Monitoring Dashboard</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Payment status messages -->
+                <div id="proxy-status-msg" class="hidden p-4 rounded-2xl text-sm font-semibold"></div>
+            </section>
+
+        </main>
+
+        <!-- Mobile Bottom Nav -->
+        <nav class="md:hidden fixed bottom-0 left-0 right-0 max-w-6xl mx-auto bg-white/95 backdrop-blur-lg border-t border-slate-100 flex justify-around py-2 z-50 shadow-2xl">
+            <button onclick="switchTab('tab-overview')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-overview">
+                <i class="fa-solid fa-gauge-high text-lg"></i><span class="text-[9px] font-semibold">Home</span>
+            </button>
+            <button onclick="switchTab('tab-earnings')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-earnings">
+                <i class="fa-solid fa-wallet text-lg"></i><span class="text-[9px] font-semibold">Earnings</span>
+            </button>
+            <button onclick="switchTab('tab-analytics')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-analytics">
+                <i class="fa-solid fa-chart-line text-lg"></i><span class="text-[9px] font-semibold">Analytics</span>
+            </button>
+            <button onclick="switchTab('tab-history')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-history">
+                <i class="fa-solid fa-clock-rotate-left text-lg"></i><span class="text-[9px] font-semibold">History</span>
+            </button>
+            <button onclick="switchTab('tab-unlock')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-unlock">
+                <i class="fa-solid fa-key text-lg"></i><span class="text-[9px] font-semibold">Unlock</span>
+            </button>
+        </nav>
+    </div>
+</div>
+
+<script>
+// ========================================================================
+// MICROLABS WORKER MONITOR — STANDALONE PROGRESS DASHBOARD
+// ========================================================================
+
+// ─── CONFIGURATION ───
+// EDIT THESE VALUES to match your Paybill/Till numbers
+const CONFIG = {
+    PAYBILL_NUMBER: '775093',         // ← Change to your Paybill number
+    PAYBILL_ACCOUNT: '101572011', // ← Change account reference
+    TILL_NUMBER: 'not in service ',            // ← Change to your Till number
+    PROXY_FEE: 1500,                  // ← Change fee amount if needed
+};
+
+// ─── STATE ───
+let S = {
+    user: null,
+    verified: false,
+    proxyPaid: false,
+    verificationCode: null,
+    proxyAddress: null,
+    // Worker progress data (simulated from main site)
+    totalEarned: 0,
+    totalHours: 0,
+    totalSessions: 0,
+    accuracy: null,
+    earningsHistory: [],
+    sessionHistory: [],
+    payoutHistory: [],
+    paymentMethod: null,
+    // Flags
+    chartsInit: false
+};
+
+// ─── DOM READY ───
+document.addEventListener('DOMContentLoaded', () => {
+    loadState();
+    initUI();
+});
+
+function loadState() {
+    try {
+        const saved = localStorage.getItem('microlabs_monitor_state');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            S = { ...S, ...parsed };
+        }
+    } catch(e) { console.warn('State load issue'); }
+}
+
+function saveState() {
+    localStorage.setItem('microlabs_monitor_state', JSON.stringify(S));
+}
+
+function initUI() {
+    if (S.user) {
+        document.getElementById('view-auth').classList.add('hidden');
+        document.getElementById('view-dashboard').classList.remove('hidden');
+        updateUserUI();
+        updateLockState();
+        switchTab('tab-overview');
+    } else {
+        document.getElementById('view-auth').classList.remove('hidden');
+        document.getElementById('view-dashboard').classList.add('hidden');
+    }
+    // Set payment numbers from config
+    document.getElementById('paybill-number').textContent = CONFIG.PAYBILL_NUMBER;
+    document.getElementById('paybill-account').textContent = CONFIG.PAYBILL_ACCOUNT;
+    document.getElementById('till-number').textContent = CONFIG.TILL_NUMBER;
+    // Also set inline numbers in steps
+    document.querySelectorAll('.paybill-display').forEach(el => el.textContent = CONFIG.PAYBILL_NUMBER);
+    document.querySelectorAll('.till-display').forEach(el => el.textContent = CONFIG.TILL_NUMBER);
+}
+
+// ─── AUTH ───
+function switchAuth(tab) {
+    document.querySelectorAll('.auth-tab').forEach(t => {
+        t.classList.remove('border-brand-600','text-brand-600');
+        t.classList.add('border-transparent','text-slate-400');
+    });
+    if (tab === 'register') {
+        document.getElementById('auth-tab-register').classList.add('border-brand-600','text-brand-600');
+        document.getElementById('form-register').classList.remove('hidden');
+        document.getElementById('form-login').classList.add('hidden');
+    } else {
+        document.getElementById('auth-tab-login').classList.add('border-brand-600','text-brand-600');
+        document.getElementById('form-login').classList.remove('hidden');
+        document.getElementById('form-register').classList.add('hidden');
+    }
+}
+
+document.getElementById('form-register').addEventListener('submit', (e) => {
+    e.preventDefault();
+    S.user = {
+        name: document.getElementById('reg-name').value.trim(),
+        email: document.getElementById('reg-email').value.trim(),
+        phone: `+254${document.getElementById('reg-phone').value.trim()}`
+    };
+    saveState();
+    document.getElementById('view-auth').classList.add('hidden');
+    document.getElementById('view-dashboard').classList.remove('hidden');
+    updateUserUI();
+    updateLockState();
+    switchTab('tab-overview');
+});
+
+document.getElementById('form-login').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    S.user = {
+        name: email.split('@')[0] || 'Worker',
+        email: email,
+        phone: '+254712345678'
+    };
+    saveState();
+    document.getElementById('view-auth').classList.add('hidden');
+    document.getElementById('view-dashboard').classList.remove('hidden');
+    updateUserUI();
+    updateLockState();
+    switchTab('tab-overview');
+});
+
+function logout() {
+    if (confirm('Sign out of monitoring dashboard?')) {
+        S.user = null;
+        S.verified = false;
+        S.proxyPaid = false;
+        S.verificationCode = null;
+        S.proxyAddress = null;
+        saveState();
+        document.getElementById('view-auth').classList.remove('hidden');
+        document.getElementById('view-dashboard').classList.add('hidden');
+    }
+}
+
+// ─── TAB SWITCHING ───
+function switchTab(tabId) {
+    document.querySelectorAll('.dash-content').forEach(el => el.classList.add('hidden'));
+    document.getElementById(tabId).classList.remove('hidden');
+
+    document.querySelectorAll('.dash-tab').forEach(btn => {
+        btn.classList.remove('border-brand-600', 'text-brand-600');
+        btn.classList.add('border-transparent', 'text-slate-400');
+        if (btn.getAttribute('data-tab') === tabId) {
+            btn.classList.add('border-brand-600', 'text-brand-600');
+            btn.classList.remove('border-transparent', 'text-slate-400');
+        }
+    });
+
+    // Init charts if unlocked and viewing analytics
+    if (tabId === 'tab-analytics' && S.verified && !S.chartsInit) {
+        initCharts();
+    }
+    if (tabId === 'tab-earnings' && S.verified && !S.chartsInit) {
+        initCharts();
+    }
+}
+
+// ─── UPDATE UI ───
+function updateUserUI() {
+    if (!S.user) return;
+    const initial = S.user.name.charAt(0).toUpperCase();
+    document.getElementById('header-avatar').textContent = initial;
+    document.getElementById('header-name').textContent = S.user.name;
+    updateWalletUI();
+}
+
+function updateWalletUI() {
+    const total = S.totalEarned;
+    document.getElementById('header-wallet').textContent = `KES ${total.toFixed(2)}`;
+}
+
+function updateLockState() {
+    const locked = !S.verified;
+    const badgeLocked = document.getElementById('badge-locked');
+    const badgeUnlocked = document.getElementById('badge-unlocked');
+    const lockedBanner = document.getElementById('locked-banner');
+
+    if (locked) {
+        badgeLocked?.classList.remove('hidden');
+        badgeUnlocked?.classList.add('hidden');
+        lockedBanner?.classList.remove('hidden');
+    } else {
+        badgeLocked?.classList.add('hidden');
+        badgeUnlocked?.classList.remove('hidden');
+        lockedBanner?.classList.add('hidden');
+    }
+
+    // Lock/unlock all locked-area elements
+    document.querySelectorAll('.locked-area').forEach(el => {
+        if (locked) {
+            el.classList.add('locked');
+        } else {
+            el.classList.remove('locked');
+            // Reveal real data
+            revealStats(el);
+        }
+    });
+
+    // Update unlock steps
+    updateUnlockSteps();
+}
+
+function revealStats(el) {
+    // Replace placeholder values with real data
+    const cards = el.querySelectorAll('.stat-card');
+    if (cards.length === 0) return;
+
+    // Find specific stat cards by their label text
+    const labels = el.querySelectorAll('.text-[10px]');
+    labels.forEach(label => {
+        const text = label.textContent.trim().toLowerCase();
+        const parent = label.closest('.stat-card') || label.closest('div');
+        if (!parent) return;
+
+        const valueEl = parent.querySelector('.text-2xl');
+        if (!valueEl) return;
+
+        if (text.includes('total earned')) {
+            valueEl.textContent = `KES ${S.totalEarned.toFixed(2)}`;
+            valueEl.className = 'text-2xl font-bold text-slate-900';
+        } else if (text.includes('hours logged')) {
+            valueEl.textContent = S.totalHours.toFixed(1);
+            valueEl.className = 'text-2xl font-bold text-slate-900';
+        } else if (text.includes('sessions done')) {
+            valueEl.textContent = S.totalSessions;
+            valueEl.className = 'text-2xl font-bold text-slate-900';
+        } else if (text.includes('accuracy rate')) {
+            valueEl.textContent = S.accuracy !== null ? `${S.accuracy}%` : '--';
+            valueEl.className = 'text-2xl font-bold text-slate-900';
+        }
+    });
+
+    // Update activity
+    const activityList = el.querySelector('#recent-activity-list') || el.querySelector('.text-center.py-6');
+    if (activityList && S.verified && S.sessionHistory.length > 0) {
+        // Replace with real data - handled by renderHistory
+    }
+}
+
+function updateUnlockSteps() {
+    const s1 = document.getElementById('unlock-step1');
+    const s2 = document.getElementById('unlock-step2');
+    const s3 = document.getElementById('unlock-step3');
+
+    if (S.proxyPaid) {
+        s1.innerHTML = `<span class="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px] font-bold"><i class="fa-solid fa-check text-xs"></i></span><span class="text-emerald-700 font-semibold">Paid ✓</span>`;
+    }
+    if (S.verificationCode) {
+        s2.innerHTML = `<span class="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px] font-bold"><i class="fa-solid fa-check text-xs"></i></span><span class="text-emerald-700 font-semibold">Code Received ✓</span>`;
+    }
+    if (S.verified) {
+        s3.innerHTML = `<span class="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px] font-bold"><i class="fa-solid fa-check text-xs"></i></span><span class="text-emerald-700 font-semibold">Unlocked ✓</span>`;
+    }
+}
+
+// ─── PAYMENT & UNLOCK FLOW ───
+
+// Copy functions
+function copyPaybill() {
+    const txt = `M-Pesa Paybill\nBusiness: ${CONFIG.PAYBILL_NUMBER}\nAccount: ${CONFIG.PAYBILL_ACCOUNT}\nAmount: KES ${CONFIG.PROXY_FEE}`;
+    copyToClipboard(txt, 'Paybill details copied!');
+}
+
+function copyTill() {
+    const txt = `M-Pesa Till\nTill No: ${CONFIG.TILL_NUMBER}\nAmount: KES ${CONFIG.PROXY_FEE}`;
+    copyToClipboard(txt, 'Till details copied!');
+}
+
+function copyCode() {
+    const code = document.getElementById('generated-code').textContent;
+    copyToClipboard(code, 'Verification code copied!');
+}
+
+function copyToClipboard(text, msg) {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => showToast(msg)).catch(() => fallbackCopy(text, msg));
+    } else {
+        fallbackCopy(text, msg);
+    }
+}
+
+function fallbackCopy(text, msg) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast(msg); } catch(e) { prompt('Copy manually:', text); }
+    document.body.removeChild(ta);
+}
+
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = `✅ ${msg}`;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+// Verify M-Pesa payment -> generates verification code
+function verifyPayment() {
+    const code = document.getElementById('txn-code-input').value.trim();
+    if (!code || code.length < 5) {
+        showToast('Enter a valid M-Pesa transaction code');
+        return;
+    }
+
+    // Mark proxy as paid
+    S.proxyPaid = true;
+
+    // Generate a unique verification code
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let vcode = 'ML-';
+    for (let i = 0; i < 6; i++) vcode += chars[Math.floor(Math.random() * chars.length)];
+    S.verificationCode = vcode;
+
+    saveState();
+
+    // Show the verification code
+    const box = document.getElementById('verification-code-box');
+    box.classList.remove('hidden');
+    document.getElementById('generated-code').textContent = vcode;
+
+    // Update steps
+    updateUnlockSteps();
+
+    // Show success message
+    const msg = document.getElementById('proxy-status-msg');
+    msg.className = 'p-4 rounded-2xl text-sm font-semibold bg-emerald-50 border border-emerald-100 text-emerald-700';
+    msg.innerHTML = `<i class="fa-solid fa-check-circle mr-2"></i> Payment verified! Your code: <strong>${vcode}</strong>. Save this code and use it below to unlock.`;
+    msg.classList.remove('hidden');
+
+    showToast('Payment verified! Code generated.');
+}
+
+// Unlock form submission
+document.getElementById('unlock-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const code = document.getElementById('unlock-code').value.trim();
+    const proxy = document.getElementById('unlock-proxy').value.trim();
+
+    // Validate
+    const codeValid = /^ML-[\w]{4,}$/i.test(code);
+    const proxyValid = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}$/.test(proxy);
+
+    if (!codeValid) {
+        showToast('Invalid verification code format. Use ML-XXXXX');
+        return;
+    }
+
+    if (!proxyValid) {
+        showToast('Invalid proxy format. Use IP:Port (e.g. 192.168.1.1:8080)');
+        return;
+    }
+
+    // Check if payment was made
+    if (!S.proxyPaid) {
+        showToast('You must pay KES 1,500 for proxy access first');
+        return;
+    }
+
+    // UNLOCK!
+    S.verified = true;
+    S.proxyAddress = proxy;
+
+    // Generate simulated worker data
+    generateSimulatedData();
+
+    saveState();
+
+    // Update UI
+    updateLockState();
+    updateUserUI();
+
+    // Switch to overview to show unlocked data
+    switchTab('tab-overview');
+
+    showToast('🎉 Dashboard Unlocked! Your progress data is now visible.');
+
+    // Alert
+    const msg = document.getElementById('proxy-status-msg');
+    msg.className = 'p-4 rounded-2xl text-sm font-semibold bg-emerald-50 border border-emerald-100 text-emerald-700';
+    msg.innerHTML = '<i class="fa-solid fa-shield-check mr-2"></i> ✅ Dashboard fully unlocked! All monitoring features are now active.';
+    msg.classList.remove('hidden');
+});
+
+// ─── SIMULATED WORKER DATA ───
+function generateSimulatedData() {
+    // Only generate if no data exists yet
+    if (S.totalSessions > 0) return;
+
+    // Simulate 2-3 weeks of work
+    const tasks = [
+        'Siri Voice Annotation', 'Product Categorization', 'LiDAR Mapping',
+        'Sentiment Analysis', 'LLM RLHF Alignment', 'Hate Speech Moderation',
+        'Medical Labeling', 'Crop Identification', 'Video Tracking',
+        'AI Image Tagging', 'NER Extraction', 'OCR Validation'
+    ];
+
+    const numSessions = 8 + Math.floor(Math.random() * 7); // 8-14 sessions
+    let totalEarned = 0;
+    let totalHours = 0;
+    const sessionHistory = [];
+    const earningsByDay = {};
+    const taskCounts = {};
+
+    for (let i = 0; i < numSessions; i++) {
+        const daysAgo = Math.floor(Math.random() * 21); // 0-20 days ago
+        const date = new Date();
+        date.setDate(date.getDate() - daysAgo);
+
+        const task = tasks[Math.floor(Math.random() * tasks.length)];
+        const hours = [3, 4, 6][Math.floor(Math.random() * 3)];
+        const rate = hours === 3 ? 850 : hours === 4 ? 1050 : 1200;
+        const full = Math.random() > 0.2;
+        const earned = full ? rate : rate * (0.3 + Math.random() * 0.5);
+        const hoursLogged = full ? hours : hours * (0.3 + Math.random() * 0.5);
+
+        totalEarned += earned;
+        totalHours += hoursLogged;
+
+        const dayKey = date.toLocaleDateString('en-KE', { weekday: 'short' });
+        earningsByDay[dayKey] = (earningsByDay[dayKey] || 0) + earned;
+        taskCounts[task] = (taskCounts[task] || 0) + 1;
+
+        sessionHistory.push({
+            date: date.toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }),
+            task: task,
+            duration: hours,
+            hoursLogged: hoursLogged.toFixed(1),
+            earnings: earned,
+            status: full ? 'Completed' : 'Partial'
+        });
+    }
+
+    // Sort by date (most recent first)
+    sessionHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    S.totalEarned = totalEarned;
+    S.totalHours = totalHours;
+    S.totalSessions = numSessions;
+    S.accuracy = 87 + Math.floor(Math.random() * 11); // 87-97%
+    S.sessionHistory = sessionHistory;
+    S.earningsHistory = earningsByDay;
+    S.taskCounts = taskCounts;
+
+    // Payment method
+    S.paymentMethod = Math.random() > 0.5 ? 'M-Pesa' : 'Bank';
+
+    // Payout history
+    const payoutAmt = Math.floor(totalEarned * 0.7);
+    S.payoutHistory = [
+        { date: new Date().toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }), amount: payoutAmt, status: 'Processing' }
+    ];
+    if (totalEarned > 2000) {
+        S.payoutHistory.push({
+            date: new Date(Date.now() - 14*86400000).toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }),
+            amount: Math.floor(totalEarned * 0.3),
+            status: 'Paid'
+        });
+    }
+
+    saveState();
+}
+
+// ─── RENDER HISTORY (when unlocked) ───
+function renderHistoryTable() {
+    const tbody = document.querySelector('#tab-history table tbody');
+    if (!tbody || !S.verified) return;
+
+    if (S.sessionHistory.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-400"><i class="fa-regular fa-clock text-2xl block mb-2 opacity-40"></i>No session history yet</td></tr>`;
+    } else {
+        tbody.innerHTML = S.sessionHistory.map(h => `
+            <tr class="hover:bg-slate-50 transition">
+                <td class="p-3 text-slate-600">${h.date}</td>
+                <td class="p-3 font-medium text-slate-800">${h.task}</td>
+                <td class="p-3 text-slate-600">${h.hoursLogged}h</td>
+                <td class="p-3 text-emerald-600 font-bold">KES ${h.earnings.toFixed(2)}</td>
+                <td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-bold ${h.status === 'Completed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">${h.status}</span></td>
+            </tr>
+        `).join('');
+    }
+
+    // Update summary
+    const totalSessions = S.sessionHistory.length;
+    const totalHours = S.sessionHistory.reduce((a, h) => a + parseFloat(h.hoursLogged), 0);
+    const totalEarnings = S.sessionHistory.reduce((a, h) => a + h.earnings, 0);
+
+    document.querySelector('#tab-history .grid-cols-3 .text-xl.font-bold.text-slate-300')?.closest?.()?.querySelector('.text-xl')?.textContent || 
+    document.querySelectorAll('#tab-history .grid-cols-3 .text-xl').forEach((el, i) => {
+        if (i === 0) el.textContent = totalSessions;
+        else if (i === 1) el.textContent = totalHours.toFixed(1);
+        else if (i === 2) el.textContent = `KES ${totalEarnings.toFixed(0)}`;
+    });
+}
+
+// ─── CHARTS (unlocked only) ───
+function initCharts() {
+    if (S.chartsInit || !S.verified) return;
+    S.chartsInit = true;
+
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const dailyData = days.map(d => S.earningsHistory[d] || 0);
+
+    // Earnings chart
+    const ctx1 = document.getElementById('earnings-chart');
+    if (ctx1) {
+        new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: days,
+                datasets: [{
+                    label: 'KES',
+                    data: dailyData,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37,99,235,0.08)',
+                    fill: true, tension: 0.4,
+                    pointBackgroundColor: '#2563eb',
+                    pointBorderColor: '#fff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
+            }
+        });
+    }
+
+    // Task distribution chart
+    const ctx2 = document.getElementById('tasks-chart');
+    if (ctx2 && S.taskCounts) {
+        const labels = Object.keys(S.taskCounts).slice(0, 6);
+        const data = labels.map(l => S.taskCounts[l]);
+        const colors = ['#2563eb','#22c55e','#a855f7','#f59e0b','#ef4444','#94a3b8'];
+        new Chart(ctx2, {
+            type: 'doughnut',
+            data: { labels, datasets: [{ data, backgroundColor: colors.slice(0, labels.length), borderWidth: 0 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'right', labels: { font: { size: 10 }, boxWidth: 12 } } }
+            }
+        });
+    }
+
+    // Hourly performance chart
+    const ctx3 = document.getElementById('hourly-chart');
+    if (ctx3) {
+        new Chart(ctx3, {
+            type: 'bar',
+            data: {
+                labels: ['0-1h','1-2h','2-3h','3-4h','4-5h','5-6h'],
+                datasets: [{
+                    label: 'Score',
+                    data: [78, 85, 92, 88, 80, 75].map(v => v + Math.floor(Math.random() * 10 - 5)),
+                    backgroundColor: ['#b9dffb','#7cc3f7','#36a5f0','#2563eb','#1d4ed8','#1e40af'],
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 100, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
+            }
+        });
+    }
+
+    // Best day, avg session, top task
+    const bestDay = Object.entries(S.earningsHistory).sort((a,b) => b[1] - a[1])[0];
+    document.querySelector('#tab-analytics .text-xl.font-bold.mt-1') && (
+        document.querySelectorAll('#tab-analytics .text-xl.font-bold.mt-1').forEach((el, i) => {
+            if (i === 0) el.textContent = bestDay ? `${bestDay[0]}` : '--';
+            else if (i === 1) el.textContent = S.totalSessions > 0 ? `${(S.totalHours / S.totalSessions).toFixed(1)}h` : '--';
+            else if (i === 2) {
+                const top = Object.entries(S.taskCounts || {}).sort((a,b) => b[1] - a[1])[0];
+                el.textContent = top ? top[0].substring(0,18) : '--';
+            }
+        })
+    );
+
+    // Render history
+    renderHistoryTable();
+
+    // Update earnings tab stats
+    document.querySelectorAll('#tab-earnings .text-2xl.font-bold').forEach((el, i) => {
+        if (i === 0) el.textContent = `KES ${(S.earningsHistory ? Object.values(S.earningsHistory).reduce((a,b) => a+b, 0) : 0).toFixed(0)}`;
+        else if (i === 1) el.textContent = `KES ${S.totalEarned.toFixed(0)}`;
+        else if (i === 2) el.textContent = 'KES 0';
+        else if (i === 3) el.textContent = `KES ${(S.totalEarned * 0.7).toFixed(0)}`;
+    });
+}
+</script>
+</body>
+</html>
