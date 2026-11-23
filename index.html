@@ -1,0 +1,2054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MicroLabs Worker Monitor — Progress Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f7ff', 100: '#e0effe', 200: '#b9dffb',
+                            300: '#7cc3f7', 400: '#36a5f0', 500: '#0c87e0',
+                            600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a', 950: '#172554'
+                        },
+                        cyber: { 500: '#22c55e', 600: '#16a34a' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f1f5f9; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Locked overlay */
+        .locked-area { position: relative; }
+        .locked-area.locked::before {
+            content: '';
+            position: absolute; inset: 0;
+            background: rgba(255,255,255,0.6);
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+            border-radius: inherit; z-index: 5;
+        }
+        .locked-area.locked .lock-icon-overlay {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%,-50%); z-index: 10;
+            display: flex; flex-direction: column; align-items: center;
+            pointer-events: none;
+        }
+        .locked-area .lock-icon-overlay { display: none; }
+        .locked-area.locked .lock-icon-overlay { display: flex; }
+
+        .stat-card { transition: all 0.3s ease; }
+        .stat-card:hover { transform: translateY(-3px); box-shadow: 0 14px 44px rgba(0,0,0,0.08); }
+        .slide-up { animation: slideUp 0.5s ease-out; }
+        @keyframes slideUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+        .pulse-dot { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+        /* Floating animation for hero icons */
+        .float-anim { animation: floatY 4s ease-in-out infinite; }
+        @keyframes floatY { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
+        /* Gradient shift for backgrounds */
+        .gradient-shift {
+            background-size: 200% 200%;
+            animation: gradShift 12s ease infinite;
+        }
+        @keyframes gradShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Bounce in animation for cards */
+        .bounce-in { animation: bounceIn 0.6s cubic-bezier(0.68, -0.55, 0.27, 1.55); }
+        @keyframes bounceIn {
+            0% { opacity: 0; transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Shimmer loading effect */
+        .shimmer {
+            background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        /* Glow pulse for CTAs */
+        .glow-btn {
+            box-shadow: 0 0 20px rgba(37,99,235,0.3);
+            animation: glowPulse 2.5s ease-in-out infinite;
+        }
+        @keyframes glowPulse {
+            0%,100% { box-shadow: 0 0 20px rgba(37,99,235,0.3); }
+            50% { box-shadow: 0 0 30px rgba(37,99,235,0.5); }
+        }
+
+        .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.3); }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        /* Copy toast */
+        .toast-copy {
+            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: #1e293b; color: white; padding: 10px 24px;
+            border-radius: 12px; font-size: 13px; font-weight: 600;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            z-index: 999; opacity: 0; transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        .toast-copy.show { opacity: 1; }
+
+        /* Package card */
+        .pkg-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .pkg-card:hover { transform: translateY(-4px); }
+        .pkg-card.featured {
+            position: relative;
+            background: linear-gradient(135deg, #fff 0%, #f0fdf4 100%);
+            border: 2px solid #16a34a;
+        }
+        .pkg-card.featured::before {
+            content: '';
+            position: absolute; inset: -2px;
+            border-radius: inherit; padding: 2px;
+            background: linear-gradient(135deg, #16a34a, #059669, #16a34a);
+            background-size: 200% 200%;
+            animation: gradShift 4s ease infinite;
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Confetti */
+        .confetti-piece {
+            position: fixed; width: 10px; height: 10px;
+            top: -10px; opacity: 0;
+            animation: confettiFall 3s ease-out forwards;
+            z-index: 9999; pointer-events: none;
+        }
+        @keyframes confettiFall {
+            0% { opacity: 1; transform: translateY(0) rotate(0); }
+            100% { opacity: 0; transform: translateY(110vh) rotate(720deg); }
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(15,23,42,0.7);
+            backdrop-filter: blur(6px); z-index: 200;
+            display: flex; align-items: center; justify-content: center;
+            padding: 16px; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .modal-overlay.show { opacity: 1; pointer-events: auto; }
+
+        /* Star rating */
+        .star { color: #fbbf24; }
+        .star-empty { color: #e2e8f0; }
+
+        /* Smooth tab content */
+        .dash-content { animation: fadeIn 0.3s ease-out; }
+
+        /* Background pattern */
+        .pattern-grid {
+            background-image: radial-gradient(circle, rgba(37,99,235,0.06) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        /* Animated count */
+        .count-anim { display: inline-block; }
+    </style>
+</head>
+<body>
+
+<!-- ==================== TOAST ==================== -->
+<div id="toast" class="toast-copy"></div>
+
+<!-- ==================== WELCOME MODAL ==================== -->
+<div id="welcome-modal" class="modal-overlay">
+    <div class="bg-white rounded-3xl max-w-md w-full p-7 shadow-2xl bounce-in relative overflow-hidden">
+        <div class="absolute top-0 left-0 right-0 h-24 bg-gradient-to-br from-brand-600 to-indigo-600"></div>
+        <div class="relative">
+            <div class="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-3xl text-white mb-3 float-anim">
+                <i class="fa-solid fa-hand-sparkles"></i>
+            </div>
+            <h3 class="text-xl font-bold text-slate-900 mb-2">Welcome to MicroLabs Monitor!</h3>
+            <p class="text-sm text-slate-600 mb-4">Your worker progress dashboard is ready. Here's how to get started:</p>
+            <div class="space-y-3 mb-5">
+                <div class="flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs font-bold flex-shrink-0">1</span>
+                    <p class="text-xs text-slate-600">Go to the <strong>Unlock Dashboard</strong> tab to purchase your proxy and verification code.</p>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
+                    <p class="text-xs text-slate-600">Choose to buy <strong>Proxy (KES 700)</strong>, <strong>Verification Code (KES 800)</strong>, or <strong>both for KES 1,500</strong> (save KES 100!).</p>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
+                    <p class="text-xs text-slate-600">Once unlocked, view your stats, read <strong>reviews</strong>, and continue to your <strong>task sites</strong>.</p>
+                </div>
+            </div>
+            <button onclick="closeWelcomeModal()" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition glow-btn">
+                <i class="fa-solid fa-rocket mr-1.5"></i> Get Started
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MAIN APP ==================== -->
+<div id="app" class="min-h-screen max-w-6xl mx-auto bg-slate-50 shadow-2xl relative">
+
+    <!-- ===== AUTH / LOGIN VIEW ===== -->
+    <div id="view-auth" class="min-h-screen flex flex-col md:flex-row">
+        <!-- Left Brand -->
+        <div class="md:w-5/12 bg-gradient-to-br from-slate-950 via-brand-900 to-slate-900 text-white p-8 md:p-10 flex flex-col justify-between relative overflow-hidden gradient-shift">
+            <div class="absolute top-0 right-0 w-80 h-80 bg-brand-600/20 rounded-full blur-3xl"></div>
+            <div class="absolute bottom-0 left-0 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl"></div>
+            <div class="relative">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-12 h-12 rounded-2xl bg-brand-600 flex items-center justify-center shadow-lg shadow-brand-600/30 float-anim">
+                        <i class="fa-solid fa-microchip text-2xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold">MicroLabs <span class="text-brand-400">Monitor</span></h1>
+                        <p class="text-[10px] text-slate-400 uppercase tracking-widest">Worker Progress Console</p>
+                    </div>
+                </div>
+                <p class="text-sm text-slate-300 leading-relaxed mb-8">
+                    Track your task earnings, session history, performance analytics, and payout records — all in one place.
+                </p>
+                <div class="space-y-3 text-sm text-slate-400">
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-chart-line text-brand-400 w-4"></i><span>Real-time earnings & session tracking</span></div>
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-clock text-brand-400 w-4"></i><span>Historical work logs with filters</span></div>
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-chart-pie text-brand-400 w-4"></i><span>Performance analytics & trends</span></div>
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-wallet text-brand-400 w-4"></i><span>Payment records & payout history</span></div>
+                    <div class="flex items-center gap-3"><i class="fa-solid fa-star text-brand-400 w-4"></i><span>Worker reviews & recommendations</span></div>
+                </div>
+                <!-- Stats banner -->
+                <div class="mt-8 pt-6 border-t border-white/10 grid grid-cols-3 gap-3 text-center">
+                    <div>
+                        <p class="text-2xl font-bold text-white">2,500+</p>
+                        <p class="text-[10px] text-slate-400 uppercase">Active Workers</p>
+                    </div>
+                    <div>
+                        <p class="text-2xl font-bold text-white">KES 4.2M</p>
+                        <p class="text-[10px] text-slate-400 uppercase">Paid Out</p>
+                    </div>
+                    <div>
+                        <p class="text-2xl font-bold text-white">4.8★</p>
+                        <p class="text-[10px] text-slate-400 uppercase">Rating</p>
+                    </div>
+                </div>
+            </div>
+            <div class="text-[10px] text-slate-600 relative">© 2026 MicroLabs Kenya • Monitoring Console v2.0</div>
+        </div>
+
+        <!-- Right Auth -->
+        <div class="md:w-7/12 bg-white p-8 md:p-12 flex flex-col justify-center relative pattern-grid">
+            <div class="max-w-md mx-auto w-full">
+                <div class="mb-8">
+                    <h2 class="text-2xl font-bold text-slate-900">Worker Portal</h2>
+                    <p class="text-sm text-slate-500 mt-1">Sign in to access your progress dashboard</p>
+                </div>
+
+                <!-- Auth Tabs -->
+                <div class="flex border-b border-slate-200 mb-6">
+                    <button id="auth-tab-register" class="auth-tab px-4 py-2.5 text-sm font-semibold border-b-2 border-brand-600 text-brand-600" onclick="switchAuth('register')">Register</button>
+                    <button id="auth-tab-login" class="auth-tab px-4 py-2.5 text-sm font-semibold border-b-2 border-transparent text-slate-400" onclick="switchAuth('login')">Sign In</button>
+                </div>
+
+                <!-- Register Form -->
+                <form id="form-register" class="space-y-4">
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Full Name</label>
+                        <input type="text" id="reg-name" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="e.g. Jane Wanjiku">
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Email Address</label>
+                        <input type="email" id="reg-email" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="you@example.com">
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">M-Pesa Phone</label>
+                        <div class="flex">
+                            <span class="inline-flex items-center px-3 py-3 border border-r-0 border-slate-200 rounded-l-xl bg-slate-50 text-xs font-bold text-slate-500">+254</span>
+                            <input type="tel" id="reg-phone" pattern="[0-9]{9}" required class="flex-1 px-4 py-3 border border-slate-200 rounded-r-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="712345678">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Create Password</label>
+                        <input type="password" id="reg-pass" minlength="6" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="Min 6 characters">
+                    </div>
+                    <button type="submit" class="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl shadow-lg shadow-brand-600/20 transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-user-plus"></i> Register & Link Account
+                    </button>
+                    <p class="text-[10px] text-slate-400 text-center">Account links to your MicroLabs worker profile</p>
+                </form>
+
+                <!-- Login Form (hidden) -->
+                <form id="form-login" class="space-y-4 hidden">
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Email Address</label>
+                        <input type="email" id="login-email" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="you@example.com">
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Password</label>
+                        <input type="password" id="login-pass" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="Enter password">
+                    </div>
+                    <button type="submit" class="w-full py-3.5 bg-slate-900 hover:bg-slate-950 text-white font-semibold rounded-xl shadow-lg shadow-slate-900/20 transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i> Sign In
+                    </button>
+                    <p class="text-[10px] text-slate-400 text-center">Demo: any email/password works</p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== DASHBOARD VIEW ===== -->
+    <div id="view-dashboard" class="hidden min-h-screen flex flex-col bg-slate-50">
+
+        <!-- TOP HEADER -->
+        <header class="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-50">
+            <div class="flex items-center justify-between px-4 md:px-6 py-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-sm">
+                        <i class="fa-solid fa-microchip text-sm"></i>
+                    </div>
+                    <div>
+                        <span class="font-bold text-slate-900 text-sm">MicroLabs Monitor</span>
+                        <span class="text-[9px] text-slate-400 block leading-tight">Worker Progress Console</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <!-- Verification badge -->
+                    <div id="badge-locked" class="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-100 text-amber-700 text-[10px] font-bold">
+                        <i class="fa-solid fa-lock text-xs"></i> Locked
+                    </div>
+                    <div id="badge-unlocked" class="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold">
+                        <i class="fa-solid fa-shield-check text-xs"></i> Verified
+                    </div>
+                    <!-- Wallet -->
+                    <div class="bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-3.5 py-1.5 flex items-center gap-1.5 text-xs font-bold shadow-sm">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                        <span id="header-wallet">KES 0.00</span>
+                    </div>
+                    <!-- User -->
+                    <div class="flex items-center gap-2 pl-3 border-l border-slate-200">
+                        <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600" id="header-avatar">U</div>
+                        <span class="hidden md:block text-xs font-semibold text-slate-700" id="header-name">Worker</span>
+                        <button onclick="logout()" class="text-slate-400 hover:text-red-500 transition ml-1"><i class="fa-solid fa-power-off text-xs"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Tabs -->
+            <div class="flex px-4 md:px-6 gap-1 overflow-x-auto no-scrollbar pb-0.5">
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-brand-600 text-brand-600 whitespace-nowrap" data-tab="tab-overview" onclick="switchTab('tab-overview')">
+                    <i class="fa-solid fa-gauge-high mr-1.5"></i>Overview
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-earnings" onclick="switchTab('tab-earnings')">
+                    <i class="fa-solid fa-wallet mr-1.5"></i>Earnings
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-analytics" onclick="switchTab('tab-analytics')">
+                    <i class="fa-solid fa-chart-line mr-1.5"></i>Analytics
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-history" onclick="switchTab('tab-history')">
+                    <i class="fa-solid fa-clock-rotate-left mr-1.5"></i>Work History
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-payments" onclick="switchTab('tab-payments')">
+                    <i class="fa-solid fa-credit-card mr-1.5"></i>Payouts
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-unlock" onclick="switchTab('tab-unlock')">
+                    <i class="fa-solid fa-key mr-1.5"></i>Unlock Dashboard
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-reviews" onclick="switchTab('tab-reviews')">
+                    <i class="fa-solid fa-star mr-1.5"></i>Reviews
+                </button>
+                <button class="dash-tab px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 whitespace-nowrap" data-tab="tab-sites" onclick="switchTab('tab-sites')">
+                    <i class="fa-solid fa-arrow-up-right-from-square mr-1.5"></i>Task Sites
+                </button>
+            </div>
+        </header>
+
+        <!-- MAIN CONTENT -->
+        <main class="flex-1 p-4 md:p-6 overflow-y-auto pb-24">
+
+            <!-- ========== TAB: OVERVIEW ========== -->
+            <section id="tab-overview" class="dash-content space-y-5">
+
+                <!-- LOCKED BANNER (shown when not verified) -->
+                <div id="locked-banner" class="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-5 shadow-lg">
+                    <div class="flex items-start gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl"><i class="fa-solid fa-lock"></i></div>
+                        <div>
+                            <h3 class="font-bold text-lg">Dashboard Locked</h3>
+                            <p class="text-sm text-white/80 mt-1">Your progress data, earnings, and analytics are hidden until you unlock with Proxy + Verification Code.</p>
+                            <button onclick="switchTab('tab-unlock')" class="mt-3 px-5 py-2 bg-white text-amber-700 font-bold rounded-xl text-xs shadow-lg hover:bg-amber-50 transition">
+                                <i class="fa-solid fa-key mr-1.5"></i>Unlock Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- UNLOCKED WELCOME (shown when verified) -->
+                <div id="unlocked-banner" class="hidden bg-gradient-to-r from-emerald-500 to-green-600 text-white rounded-2xl p-5 shadow-lg">
+                    <div class="flex items-start gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl"><i class="fa-solid fa-circle-check"></i></div>
+                        <div class="flex-1">
+                            <h3 class="font-bold text-lg">Dashboard Active!</h3>
+                            <p class="text-sm text-white/80 mt-1">All your progress data is now visible. Keep up the great work!</p>
+                            <button onclick="switchTab('tab-sites')" class="mt-3 px-5 py-2 bg-white text-emerald-700 font-bold rounded-xl text-xs shadow-lg hover:bg-emerald-50 transition">
+                                <i class="fa-solid fa-arrow-up-right-from-square mr-1.5"></i>Continue to Task Sites
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Cards (4) — all locked until verified -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                    <!-- Total Earned -->
+                    <div class="locked-area locked stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="lock-icon-overlay">
+                            <i class="fa-solid fa-lock text-slate-300 text-xl mb-1"></i>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Earned</span>
+                            <span class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm"><i class="fa-solid fa-wallet"></i></span>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-2xl font-bold text-slate-300">KES --</span>
+                            <span class="text-[10px] text-slate-300 block">Lifetime earnings</span>
+                        </div>
+                    </div>
+                    <!-- Hours Worked -->
+                    <div class="locked-area locked stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="lock-icon-overlay">
+                            <i class="fa-solid fa-lock text-slate-300 text-xl mb-1"></i>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hours Logged</span>
+                            <span class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm"><i class="fa-solid fa-clock"></i></span>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-2xl font-bold text-slate-300">--</span>
+                            <span class="text-[10px] text-slate-300 block">Total verified hours</span>
+                        </div>
+                    </div>
+                    <!-- Sessions -->
+                    <div class="locked-area locked stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="lock-icon-overlay">
+                            <i class="fa-solid fa-lock text-slate-300 text-xl mb-1"></i>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sessions Done</span>
+                            <span class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center text-sm"><i class="fa-solid fa-list-check"></i></span>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-2xl font-bold text-slate-300">--</span>
+                            <span class="text-[10px] text-slate-300 block">Completed task sessions</span>
+                        </div>
+                    </div>
+                    <!-- Accuracy -->
+                    <div class="locked-area locked stat-card bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="lock-icon-overlay">
+                            <i class="fa-solid fa-lock text-slate-300 text-xl mb-1"></i>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Accuracy Rate</span>
+                            <span class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm"><i class="fa-solid fa-bullseye"></i></span>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-2xl font-bold text-slate-300">--</span>
+                            <span class="text-[10px] text-slate-300 block">Quality score</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QUICK ACTIONS -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <button onclick="switchTab('tab-sites')" class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition group text-left">
+                        <div class="w-9 h-9 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center mb-2 group-hover:scale-110 transition"><i class="fa-solid fa-arrow-up-right-from-square"></i></div>
+                        <p class="text-xs font-bold text-slate-900">Task Sites</p>
+                        <p class="text-[10px] text-slate-500">Continue working</p>
+                    </button>
+                    <button onclick="switchTab('tab-unlock')" class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition group text-left">
+                        <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center mb-2 group-hover:scale-110 transition"><i class="fa-solid fa-key"></i></div>
+                        <p class="text-xs font-bold text-slate-900">Unlock</p>
+                        <p class="text-[10px] text-slate-500">Buy proxy & code</p>
+                    </button>
+                    <button onclick="switchTab('tab-reviews')" class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition group text-left">
+                        <div class="w-9 h-9 rounded-xl bg-yellow-100 text-yellow-600 flex items-center justify-center mb-2 group-hover:scale-110 transition"><i class="fa-solid fa-star"></i></div>
+                        <p class="text-xs font-bold text-slate-900">Reviews</p>
+                        <p class="text-[10px] text-slate-500">Worker stories</p>
+                    </button>
+                    <button onclick="switchTab('tab-earnings')" class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition group text-left">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center mb-2 group-hover:scale-110 transition"><i class="fa-solid fa-coins"></i></div>
+                        <p class="text-xs font-bold text-slate-900">Earnings</p>
+                        <p class="text-[10px] text-slate-500">Income details</p>
+                    </button>
+                </div>
+
+                <!-- Recent Activity (locked) -->
+                <div class="locked-area locked bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                    <div class="lock-icon-overlay">
+                        <i class="fa-solid fa-lock text-slate-300 text-2xl mb-1"></i>
+                        <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="font-bold text-slate-400 text-sm"><i class="fa-regular fa-clock text-slate-300 mr-2"></i>Recent Activity</h4>
+                        <span class="text-xs text-slate-300 font-semibold">View All</span>
+                    </div>
+                    <div class="text-center py-6 text-slate-300">
+                        <i class="fa-regular fa-clock text-3xl block mb-2 opacity-40"></i>
+                        <span class="text-sm">No activity data available</span>
+                    </div>
+                </div>
+
+                <!-- REVIEWS PREVIEW (always visible) -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="font-bold text-slate-900 text-sm"><i class="fa-solid fa-star text-yellow-400 mr-2"></i>What Workers Say</h4>
+                        <button onclick="switchTab('tab-reviews')" class="text-xs text-brand-600 font-semibold hover:underline">See all →</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="reviews-preview"></div>
+                </div>
+
+                <!-- Quick unlock card (only shown when locked) -->
+                <div id="quick-unlock-card" class="bg-gradient-to-r from-indigo-50 to-brand-50 border border-indigo-100 rounded-2xl p-5 flex items-center justify-between">
+                    <div>
+                        <h4 class="font-bold text-indigo-800 text-sm">Want to see your real progress?</h4>
+                        <p class="text-xs text-indigo-600 mt-1">Unlock your dashboard with Proxy + Verification Code.</p>
+                    </div>
+                    <button onclick="switchTab('tab-unlock')" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20 transition-all whitespace-nowrap">
+                        Unlock <i class="fa-solid fa-arrow-right ml-1.5"></i>
+                    </button>
+                </div>
+            </section>
+
+            <!-- ========== TAB: EARNINGS ========== -->
+            <section id="tab-earnings" class="dash-content hidden space-y-5">
+                <div class="locked-area locked">
+                    <div class="lock-icon-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                        <i class="fa-solid fa-lock text-slate-300 text-3xl mb-2"></i>
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="opacity-30 pointer-events-none">
+                        <div><h3 class="text-lg font-bold text-slate-900">Earnings Breakdown</h3><p class="text-xs text-slate-500 mt-1">Your income from all task sessions</p></div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">This Week</span>
+                                <p class="text-2xl font-bold text-slate-900 mt-1">KES 0</p>
+                            </div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">This Month</span>
+                                <p class="text-2xl font-bold text-slate-900 mt-1">KES 0</p>
+                            </div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">Pending</span>
+                                <p class="text-2xl font-bold text-amber-600 mt-1">KES 0</p>
+                            </div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">Paid Out</span>
+                                <p class="text-2xl font-bold text-emerald-600 mt-1">KES 0</p>
+                            </div>
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mt-4">
+                            <h4 class="text-sm font-bold text-slate-900 mb-3">Daily Earnings (Last 7 Days)</h4>
+                            <canvas id="earnings-chart" height="180"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: ANALYTICS ========== -->
+            <section id="tab-analytics" class="dash-content hidden space-y-5">
+                <div class="locked-area locked">
+                    <div class="lock-icon-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                        <i class="fa-solid fa-lock text-slate-300 text-3xl mb-2"></i>
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="opacity-30 pointer-events-none">
+                        <div><h3 class="text-lg font-bold text-slate-900">Performance Analytics</h3><p class="text-xs text-slate-500 mt-1">Deep insights into your work quality and trends</p></div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Task Distribution</h4>
+                                <canvas id="tasks-chart" height="200"></canvas>
+                            </div>
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Hourly Performance</h4>
+                                <canvas id="hourly-chart" height="200"></canvas>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 mt-4">
+                            <div class="bg-gradient-to-br from-brand-600 to-brand-700 text-white p-4 rounded-2xl">
+                                <span class="text-[10px] font-semibold uppercase text-brand-200">Best Day</span>
+                                <p class="text-xl font-bold mt-1">--</p>
+                            </div>
+                            <div class="bg-gradient-to-br from-emerald-600 to-emerald-700 text-white p-4 rounded-2xl">
+                                <span class="text-[10px] font-semibold uppercase text-emerald-200">Avg Session</span>
+                                <p class="text-xl font-bold mt-1">--</p>
+                            </div>
+                            <div class="bg-gradient-to-br from-purple-600 to-purple-700 text-white p-4 rounded-2xl">
+                                <span class="text-[10px] font-semibold uppercase text-purple-200">Top Task</span>
+                                <p class="text-lg font-bold mt-1">--</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: WORK HISTORY ========== -->
+            <section id="tab-history" class="dash-content hidden space-y-4">
+                <div class="locked-area locked">
+                    <div class="lock-icon-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                        <i class="fa-solid fa-lock text-slate-300 text-3xl mb-2"></i>
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="opacity-30 pointer-events-none">
+                        <div><h3 class="text-lg font-bold text-slate-900">Work Session History</h3><p class="text-xs text-slate-500 mt-1">Complete log of all your task sessions</p></div>
+                        <div class="flex gap-2 mt-4 overflow-x-auto no-scrollbar">
+                            <button class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">All</button>
+                            <button class="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold">Completed</button>
+                            <button class="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold">Partial</button>
+                        </div>
+                        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm mt-4 overflow-hidden">
+                            <table class="w-full text-xs">
+                                <thead><tr class="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px]"><th class="text-left p-3 font-semibold">Date</th><th class="text-left p-3 font-semibold">Task</th><th class="text-left p-3 font-semibold">Duration</th><th class="text-left p-3 font-semibold">Earnings</th><th class="text-left p-3 font-semibold">Status</th></tr></thead>
+                                <tbody><tr><td colspan="5" class="p-8 text-center text-slate-300"><i class="fa-regular fa-clock text-2xl block mb-2 opacity-40"></i>No session history available</td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 mt-4">
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center"><span class="text-[10px] font-bold text-slate-400 uppercase block">Total Sessions</span><span class="text-xl font-bold text-slate-300 mt-1 block">0</span></div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center"><span class="text-[10px] font-bold text-slate-400 uppercase block">Total Hours</span><span class="text-xl font-bold text-slate-300 mt-1 block">0.0</span></div>
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center"><span class="text-[10px] font-bold text-slate-400 uppercase block">Total KES</span><span class="text-xl font-bold text-slate-300 mt-1 block">0</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: PAYOUTS ========== -->
+            <section id="tab-payments" class="dash-content hidden space-y-4">
+                <div class="locked-area locked">
+                    <div class="lock-icon-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                        <i class="fa-solid fa-lock text-slate-300 text-3xl mb-2"></i>
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Locked</span>
+                    </div>
+                    <div class="opacity-30 pointer-events-none">
+                        <div><h3 class="text-lg font-bold text-slate-900">Payment & Payout Records</h3><p class="text-xs text-slate-500 mt-1">Track all your disbursements and payment method</p></div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase block">Next Payout</span>
+                                <p class="text-2xl font-bold text-slate-900 mt-2">KES 0.00</p>
+                                <span class="text-[10px] text-slate-400">Est. on completion</span>
+                            </div>
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase block">Last Payout</span>
+                                <p class="text-2xl font-bold text-slate-900 mt-2">KES 0.00</p>
+                                <span class="text-[10px] text-slate-400">--</span>
+                            </div>
+                            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase block">Payment Method</span>
+                                <p class="text-lg font-bold text-slate-900 mt-2 flex items-center gap-2"><i class="fa-regular fa-circle-question text-slate-300"></i> Not Set</p>
+                                <span class="text-[10px] text-slate-400">Configure in main site</span>
+                            </div>
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mt-4">
+                            <h4 class="text-sm font-bold text-slate-900 mb-3">Payout History</h4>
+                            <div class="text-center py-8 text-slate-300"><i class="fa-regular fa-receipt text-3xl block mb-2 opacity-40"></i>No payout records</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: UNLOCK DASHBOARD (3 packages) ========== -->
+            <section id="tab-unlock" class="dash-content hidden space-y-5">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">Unlock Your Dashboard</h3>
+                    <p class="text-xs text-slate-500">Purchase a Proxy and Verification Code to access your full monitoring features</p>
+                </div>
+
+                <!-- Why Unlock -->
+                <div class="bg-gradient-to-r from-brand-50 to-indigo-50 border border-brand-100 rounded-2xl p-5">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-shield-halved"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Why unlock?</h4>
+                            <p class="text-xs text-slate-600 mt-1">You need <strong>both</strong> a Proxy (for secure connection) and a Verification Code (to confirm your worker identity) to access your earnings, analytics, and work history.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Purchase Status -->
+                <div id="purchase-status" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3" id="status-proxy-card">
+                        <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center" id="status-proxy-icon">
+                            <i class="fa-solid fa-wifi"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Proxy Access</p>
+                            <p class="text-sm font-bold text-slate-900" id="status-proxy-text">Not Purchased</p>
+                        </div>
+                        <i class="fa-solid fa-circle text-slate-300 text-xs" id="status-proxy-mark"></i>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3" id="status-verification-card">
+                        <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center" id="status-verification-icon">
+                            <i class="fa-solid fa-key"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Verification Code</p>
+                            <p class="text-sm font-bold text-slate-900" id="status-verification-text">Not Purchased</p>
+                        </div>
+                        <i class="fa-solid fa-circle text-slate-300 text-xs" id="status-verification-mark"></i>
+                    </div>
+                </div>
+
+                <!-- PACKAGE CARDS -->
+                <div>
+                    <h4 class="text-sm font-bold text-slate-900 mb-3"><i class="fa-solid fa-box-open text-brand-600 mr-2"></i>Choose Your Package</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                        <!-- Package 1: Proxy Only - KES 700 -->
+                        <div class="pkg-card bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div class="bg-gradient-to-br from-cyan-500 to-blue-600 p-5 text-white relative overflow-hidden">
+                                <div class="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+                                <div class="relative">
+                                    <div class="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl mb-3 float-anim"><i class="fa-solid fa-wifi"></i></div>
+                                    <h5 class="font-bold text-lg">Proxy Only</h5>
+                                    <p class="text-xs text-white/80">Secure connection access</p>
+                                </div>
+                            </div>
+                            <div class="p-5">
+                                <div class="mb-3">
+                                    <span class="text-3xl font-bold text-slate-900">KES 700</span>
+                                </div>
+                                <ul class="space-y-2 text-xs text-slate-600 mb-4">
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-emerald-500 mt-0.5"></i><span>Proxy server access</span></li>
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-emerald-500 mt-0.5"></i><span>Secure worker connection</span></li>
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-xmark text-slate-300 mt-0.5"></i><span class="text-slate-400">No verification code</span></li>
+                                </ul>
+                                <button onclick="buyPackage('proxy')" class="w-full py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl text-xs shadow-lg shadow-cyan-600/20 transition-all">
+                                    <i class="fa-solid fa-bolt mr-1.5"></i>Buy Proxy
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Package 2: Verification Code Only - KES 800 -->
+                        <div class="pkg-card bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div class="bg-gradient-to-br from-purple-500 to-indigo-600 p-5 text-white relative overflow-hidden">
+                                <div class="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+                                <div class="relative">
+                                    <div class="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl mb-3 float-anim" style="animation-delay: 0.5s;"><i class="fa-solid fa-key"></i></div>
+                                    <h5 class="font-bold text-lg">Verification Code</h5>
+                                    <p class="text-xs text-white/80">Worker identity code</p>
+                                </div>
+                            </div>
+                            <div class="p-5">
+                                <div class="mb-3">
+                                    <span class="text-3xl font-bold text-slate-900">KES 800</span>
+                                </div>
+                                <ul class="space-y-2 text-xs text-slate-600 mb-4">
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-emerald-500 mt-0.5"></i><span>Unique verification code</span></li>
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-emerald-500 mt-0.5"></i><span>Worker identity confirmed</span></li>
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-xmark text-slate-300 mt-0.5"></i><span class="text-slate-400">No proxy access</span></li>
+                                </ul>
+                                <button onclick="buyPackage('verification')" class="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl text-xs shadow-lg shadow-purple-600/20 transition-all">
+                                    <i class="fa-solid fa-shield-halved mr-1.5"></i>Buy Code
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Package 3: Bundle - KES 1500 (BEST VALUE) -->
+                        <div class="pkg-card featured rounded-2xl shadow-lg overflow-hidden relative">
+                            <div class="absolute top-3 right-3 z-10">
+                                <span class="bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[9px] font-bold px-2.5 py-1 rounded-full shadow-md uppercase tracking-wider">Save KES 100</span>
+                            </div>
+                            <div class="bg-gradient-to-br from-emerald-500 via-green-600 to-teal-600 p-5 text-white relative overflow-hidden gradient-shift">
+                                <div class="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+                                <div class="relative">
+                                    <div class="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl mb-3 float-anim" style="animation-delay: 1s;"><i class="fa-solid fa-crown"></i></div>
+                                    <h5 class="font-bold text-lg">Bundle (Both)</h5>
+                                    <p class="text-xs text-white/80">Proxy + Verification Code</p>
+                                    <div class="mt-2 inline-block bg-white/20 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">Best Value</div>
+                                </div>
+                            </div>
+                            <div class="p-5">
+                                <div class="mb-3 flex items-baseline gap-2">
+                                    <span class="text-3xl font-bold text-slate-900">KES 1,500</span>
+                                    <span class="text-sm text-slate-400 line-through">KES 1,500</span>
+                                </div>
+                                <ul class="space-y-2 text-xs text-slate-600 mb-4">
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-emerald-500 mt-0.5"></i><span>Proxy server access</span></li>
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-emerald-500 mt-0.5"></i><span>Verification code included</span></li>
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-emerald-500 mt-0.5"></i><span>Full dashboard unlock</span></li>
+                                    <li class="flex items-start gap-2"><i class="fa-solid fa-gift text-amber-500 mt-0.5"></i><span>Save KES 100</span></li>
+                                </ul>
+                                <button onclick="buyPackage('both')" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-600/30 transition-all glow-btn">
+                                    <i class="fa-solid fa-bolt mr-1.5"></i>Buy Bundle & Save
+                                </button>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- PAYMENT SECTION (appears when package selected) -->
+                <div id="payment-section" class="hidden bg-white p-6 rounded-2xl border-2 border-brand-200 shadow-lg">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center"><i class="fa-solid fa-mobile-screen text-lg"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Pay for <span id="payment-package-name">--</span></h4>
+                            <p class="text-[10px] text-slate-500">Send <strong id="payment-amount">KES 0</strong> via M-Pesa to the Paybill below</p>
+                        </div>
+                    </div>
+
+                    <!-- Paybill Details -->
+                    <div class="bg-slate-50 rounded-xl p-5 border border-slate-100 mb-4">
+                        <div class="flex items-center gap-2 mb-3">
+                            <div class="w-8 h-8 rounded-lg bg-brand-100 text-brand-600 flex items-center justify-center"><i class="fa-solid fa-building-columns"></i></div>
+                            <span class="text-sm font-bold text-slate-900">M-Pesa Paybill</span>
+                            <span class="ml-auto text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">ACTIVE</span>
+                        </div>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500">Business No:</span>
+                                <span class="font-bold text-slate-900 font-mono text-base" id="paybill-number">775093</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500">Account:</span>
+                                <span class="font-bold text-slate-900 font-mono" id="paybill-account">101572011</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500">Amount:</span>
+                                <span class="font-bold text-emerald-600 text-base" id="payment-amount-display">KES 0</span>
+                            </div>
+                        </div>
+                        <button onclick="copyPaybillForPurchase()" class="mt-4 w-full py-2.5 bg-slate-900 hover:bg-slate-950 text-white rounded-xl text-[11px] font-semibold transition-all flex items-center justify-center gap-2">
+                            <i class="fa-regular fa-copy"></i> Copy Paybill Details
+                        </button>
+                    </div>
+
+                    <!-- M-Pesa instructions -->
+                    <div class="p-4 bg-brand-50 border border-brand-100 rounded-xl mb-4">
+                        <p class="text-xs font-semibold text-brand-700 mb-2"><i class="fa-solid fa-circle-info mr-1.5"></i>How to pay via M-Pesa:</p>
+                        <ol class="text-[11px] text-slate-600 space-y-1 list-decimal list-inside">
+                            <li>Go to <strong>M-Pesa</strong> → <strong>Lipa na M-Pesa</strong> → <strong>Paybill</strong></li>
+                            <li>Enter Business No: <strong class="font-mono">775093</strong></li>
+                            <li>Enter Account: <strong class="font-mono">101572011</strong></li>
+                            <li>Enter the amount shown above and your PIN</li>
+                            <li>You'll receive an SMS with a <strong>transaction code</strong></li>
+                        </ol>
+                    </div>
+
+                    <!-- Transaction code input -->
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Enter M-Pesa Transaction Code</label>
+                        <div class="flex gap-3">
+                            <input type="text" id="purchase-txn-code" class="flex-1 px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50 font-mono" placeholder="e.g. QWE12RT34Y56">
+                            <button onclick="verifyPurchasePayment()" class="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl text-xs shadow-lg shadow-brand-600/20 transition-all whitespace-nowrap">
+                                <i class="fa-solid fa-check mr-1.5"></i>Verify
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-2">The transaction code is in your M-Pesa confirmation SMS after payment</p>
+                    </div>
+
+                    <button onclick="cancelPurchase()" class="mt-4 text-xs text-slate-400 hover:text-red-500 transition"><i class="fa-solid fa-xmark mr-1"></i>Cancel</button>
+                </div>
+
+                <!-- VERIFICATION CODE DISPLAY (shown after verification purchase) -->
+                <div id="verification-code-box" class="hidden p-5 bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-200 rounded-2xl">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl"><i class="fa-solid fa-key"></i></div>
+                        <div>
+                            <span class="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Your Verification Code</span>
+                            <p class="text-2xl font-bold text-emerald-800 font-mono tracking-wider mt-1" id="generated-code">ML-XXXXXX</p>
+                            <p class="text-[10px] text-emerald-600 mt-1">Save this code — you'll need it below to unlock</p>
+                        </div>
+                    </div>
+                    <button onclick="copyCode()" class="mt-4 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2">
+                        <i class="fa-regular fa-copy"></i> Copy Verification Code
+                    </button>
+                </div>
+
+                <!-- FINAL UNLOCK FORM -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center"><i class="fa-solid fa-unlock text-lg"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Final Step: Unlock Dashboard</h4>
+                            <p class="text-[10px] text-slate-500">Enter your verification code and proxy details to unlock</p>
+                        </div>
+                    </div>
+
+                    <!-- Requirements check -->
+                    <div id="unlock-requirements" class="mb-4 p-3 bg-slate-50 rounded-xl text-xs space-y-1.5">
+                        <div class="flex items-center gap-2" id="req-proxy">
+                            <i class="fa-solid fa-circle-xmark text-slate-300"></i>
+                            <span class="text-slate-500">Purchase Proxy Access</span>
+                        </div>
+                        <div class="flex items-center gap-2" id="req-verification">
+                            <i class="fa-solid fa-circle-xmark text-slate-300"></i>
+                            <span class="text-slate-500">Purchase Verification Code</span>
+                        </div>
+                    </div>
+
+                    <form id="unlock-form" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Verification Code</label>
+                            <input type="text" id="unlock-code" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50 font-mono" placeholder="ML-XXXXXX">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Proxy Server IP:Port</label>
+                            <input type="text" id="unlock-proxy" required class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50 font-mono" placeholder="e.g. 192.168.1.100:8080">
+                            <p class="text-[10px] text-slate-400 mt-1">Obtain proxy details from MicroLabs management after purchase</p>
+                        </div>
+                        <button type="submit" id="unlock-submit-btn" disabled class="w-full py-3.5 bg-slate-300 text-slate-500 font-semibold rounded-xl cursor-not-allowed transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-lock"></i> <span>Purchase both items first to unlock</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Status messages -->
+                <div id="proxy-status-msg" class="hidden p-4 rounded-2xl text-sm font-semibold"></div>
+
+                <!-- Help -->
+                <div class="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                    <h4 class="text-sm font-bold text-slate-900 mb-3"><i class="fa-solid fa-circle-question text-brand-600 mr-2"></i>Frequently Asked</h4>
+                    <div class="space-y-3 text-xs">
+                        <div>
+                            <p class="font-semibold text-slate-700">Do I need both proxy and verification code?</p>
+                            <p class="text-slate-500 mt-1">Yes. The proxy secures your connection and the verification code confirms your worker identity. Both are required.</p>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-slate-700">Can I buy them separately?</p>
+                            <p class="text-slate-500 mt-1">Yes! Buy Proxy for KES 700 and Verification Code for KES 800 separately, or get the bundle for KES 1,500 (save KES 100).</p>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-slate-700">How do I get my proxy IP after purchase?</p>
+                            <p class="text-slate-500 mt-1">After purchasing proxy access, MicroLabs management will send your proxy IP:Port via SMS. Enter it in the unlock form above.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: REVIEWS & RECOMMENDATIONS ========== -->
+            <section id="tab-reviews" class="dash-content hidden space-y-5">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">Worker Reviews & Recommendations</h3>
+                    <p class="text-xs text-slate-500">Real feedback from MicroLabs workers using this monitoring dashboard</p>
+                </div>
+
+                <!-- Overall Rating -->
+                <div class="bg-gradient-to-br from-amber-400 via-orange-500 to-red-500 p-6 rounded-2xl text-white shadow-lg relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+                    <div class="relative flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div class="text-center md:text-left">
+                            <div class="flex items-center gap-2 justify-center md:justify-start mb-2">
+                                <span class="text-5xl font-bold">4.8</span>
+                                <div class="text-left">
+                                    <div class="flex text-yellow-200 text-lg">★★★★★</div>
+                                    <p class="text-xs text-white/80">Based on 1,247 reviews</p>
+                                </div>
+                            </div>
+                            <p class="text-sm text-white/90">Workers love the MicroLabs Monitor dashboard!</p>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 text-center">
+                            <div class="bg-white/10 backdrop-blur rounded-xl p-3">
+                                <p class="text-2xl font-bold">94%</p>
+                                <p class="text-[10px] text-white/80 uppercase">Recommend</p>
+                            </div>
+                            <div class="bg-white/10 backdrop-blur rounded-xl p-3">
+                                <p class="text-2xl font-bold">2.5K</p>
+                                <p class="text-[10px] text-white/80 uppercase">Workers</p>
+                            </div>
+                            <div class="bg-white/10 backdrop-blur rounded-xl p-3">
+                                <p class="text-2xl font-bold">+30%</p>
+                                <p class="text-[10px] text-white/80 uppercase">Avg Earnings</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Featured Review -->
+                <div class="bg-white p-6 rounded-2xl border-2 border-amber-200 shadow-sm relative overflow-hidden">
+                    <div class="absolute top-4 right-4 text-amber-400 text-3xl opacity-30"><i class="fa-solid fa-quote-right"></i></div>
+                    <div class="flex items-start gap-4">
+                        <div class="w-14 h-14 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-xl shadow-md">JW</div>
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-1">
+                                <h5 class="font-bold text-slate-900">Jane Wanjiku</h5>
+                                <span class="bg-amber-100 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase">Top Reviewer</span>
+                            </div>
+                            <p class="text-[10px] text-slate-400 mb-2">Data Annotator • Nairobi • 2 weeks ago</p>
+                            <div class="flex text-yellow-400 mb-2 text-sm">★★★★★</div>
+                            <p class="text-sm text-slate-700 leading-relaxed">"MicroLabs Monitor completely changed how I track my daily work. I can see exactly which tasks pay best, my accuracy trends, and when my payouts are coming. The bundle package saved me KES 100 and the dashboard is so clean. Highly recommend to any serious online worker."</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reviews Grid -->
+                <div>
+                    <h4 class="text-sm font-bold text-slate-900 mb-3"><i class="fa-solid fa-comments text-brand-600 mr-2"></i>More Worker Reviews</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="reviews-grid"></div>
+                </div>
+
+                <!-- Recommendations -->
+                <div class="bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-100 rounded-2xl p-5">
+                    <h4 class="text-sm font-bold text-indigo-900 mb-4"><i class="fa-solid fa-lightbulb text-indigo-600 mr-2"></i>Recommendations for You</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div class="bg-white p-4 rounded-xl border border-indigo-100">
+                            <div class="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center mb-2"><i class="fa-solid fa-clock"></i></div>
+                            <p class="text-xs font-bold text-slate-900">Work Peak Hours</p>
+                            <p class="text-[10px] text-slate-500 mt-1">Most workers earn 20% more between 9-11 AM and 7-9 PM.</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-indigo-100">
+                            <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center mb-2"><i class="fa-solid fa-bullseye"></i></div>
+                            <p class="text-xs font-bold text-slate-900">Maintain 90%+ Accuracy</p>
+                            <p class="text-[10px] text-slate-500 mt-1">High accuracy unlocks premium tasks with better pay rates.</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-indigo-100">
+                            <div class="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center mb-2"><i class="fa-solid fa-fire"></i></div>
+                            <p class="text-xs font-bold text-slate-900">Build Your Streak</p>
+                            <p class="text-[10px] text-slate-500 mt-1">Work daily for 7+ days to qualify for bonus payouts.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add Review -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                    <h4 class="text-sm font-bold text-slate-900 mb-3"><i class="fa-solid fa-pen-to-square text-brand-600 mr-2"></i>Share Your Experience</h4>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-500 mb-1">Your Rating</label>
+                            <div class="flex gap-1 text-2xl" id="review-stars">
+                                <span class="star-empty cursor-pointer hover:scale-110 transition" onclick="setReviewRating(1)">★</span>
+                                <span class="star-empty cursor-pointer hover:scale-110 transition" onclick="setReviewRating(2)">★</span>
+                                <span class="star-empty cursor-pointer hover:scale-110 transition" onclick="setReviewRating(3)">★</span>
+                                <span class="star-empty cursor-pointer hover:scale-110 transition" onclick="setReviewRating(4)">★</span>
+                                <span class="star-empty cursor-pointer hover:scale-110 transition" onclick="setReviewRating(5)">★</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-500 mb-1">Your Review</label>
+                            <textarea id="review-text" rows="3" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm bg-slate-50/50" placeholder="Tell other workers about your experience..."></textarea>
+                        </div>
+                        <button onclick="submitReview()" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl text-xs shadow-lg transition">
+                            <i class="fa-solid fa-paper-plane mr-1.5"></i>Submit Review
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== TAB: TASK SITES ========== -->
+            <section id="tab-sites" class="dash-content hidden space-y-5">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">Continue to Your Task Sites</h3>
+                    <p class="text-xs text-slate-500">Click below to open the platforms where you complete your tasks</p>
+                </div>
+
+                <!-- IMPORTANT NOTICE -->
+                <div class="bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-100 rounded-2xl p-4 flex items-start gap-3">
+                    <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-circle-info"></i></div>
+                    <div>
+                        <p class="text-xs font-bold text-emerald-900">Ready to work?</p>
+                        <p class="text-[11px] text-emerald-700 mt-1">Make sure your dashboard is unlocked so your task progress syncs back here automatically.</p>
+                    </div>
+                </div>
+
+                <!-- TASK SITE CARDS -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                    <!-- ==================================================== -->
+                    <!-- EDIT THIS IN VS CODE: Replace href="#" below with your Task Site 1 URL -->
+                    <!-- ==================================================== -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group hover:shadow-lg transition-all">
+                        <div class="bg-gradient-to-br from-brand-600 to-indigo-700 p-6 text-white relative overflow-hidden">
+                            <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl"></div>
+                            <div class="relative">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-3xl float-anim"><i class="fa-solid fa-laptop-code"></i></div>
+                                    <span class="bg-emerald-400/30 backdrop-blur text-emerald-50 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping"></span> Active
+                                    </span>
+                                </div>
+                                <h4 class="text-xl font-bold">Task Site 1</h4>
+                                <p class="text-xs text-white/80 mt-1">Primary tasking platform</p>
+                            </div>
+                        </div>
+                        <div class="p-5">
+                            <div class="space-y-2 text-xs text-slate-600 mb-4">
+                                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 w-4"></i><span>Voice & text annotation tasks</span></div>
+                                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 w-4"></i><span>Image labeling & categorization</span></div>
+                                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 w-4"></i><span>Real-time task availability</span></div>
+                            </div>
+                            <!-- EDIT THIS href IN VS CODE -->
+                            <a href="#" target="_blank" rel="noopener" class="block w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-sm shadow-lg shadow-brand-600/20 transition-all text-center group-hover:scale-[1.02]">
+                                <i class="fa-solid fa-arrow-right-to-bracket mr-2"></i>Continue to Site 1
+                                <i class="fa-solid fa-arrow-up-right-from-square ml-2 text-xs"></i>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- ==================================================== -->
+                    <!-- EDIT THIS IN VS CODE: Replace href="#" below with your Task Site 2 URL -->
+                    <!-- ==================================================== -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group hover:shadow-lg transition-all">
+                        <div class="bg-gradient-to-br from-emerald-600 to-teal-700 p-6 text-white relative overflow-hidden">
+                            <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl"></div>
+                            <div class="relative">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-3xl float-anim" style="animation-delay: 0.7s;"><i class="fa-solid fa-server"></i></div>
+                                    <span class="bg-emerald-400/30 backdrop-blur text-emerald-50 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping"></span> Active
+                                    </span>
+                                </div>
+                                <h4 class="text-xl font-bold">Task Site 2</h4>
+                                <p class="text-xs text-white/80 mt-1">Secondary tasking platform</p>
+                            </div>
+                        </div>
+                        <div class="p-5">
+                            <div class="space-y-2 text-xs text-slate-600 mb-4">
+                                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 w-4"></i><span>Sentiment analysis tasks</span></div>
+                                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 w-4"></i><span>OCR & data validation</span></div>
+                                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 w-4"></i><span>AI training data tasks</span></div>
+                            </div>
+                            <!-- EDIT THIS href IN VS CODE -->
+                            <a href="#" target="_blank" rel="noopener" class="block w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm shadow-lg shadow-emerald-600/20 transition-all text-center group-hover:scale-[1.02]">
+                                <i class="fa-solid fa-arrow-right-to-bracket mr-2"></i>Continue to Site 2
+                                <i class="fa-solid fa-arrow-up-right-from-square ml-2 text-xs"></i>
+                            </a>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Tips Section -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                    <h4 class="text-sm font-bold text-slate-900 mb-3"><i class="fa-solid fa-lightbulb text-amber-500 mr-2"></i>Quick Tips Before You Start</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="flex items-start gap-3 p-3 bg-slate-50 rounded-xl">
+                            <div class="w-8 h-8 rounded-lg bg-brand-100 text-brand-600 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-1"></i></div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-900">Ensure stable internet</p>
+                                <p class="text-[10px] text-slate-500 mt-0.5">Use the proxy provided to maintain a stable connection during tasks.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3 p-3 bg-slate-50 rounded-xl">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-2"></i></div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-900">Check task availability</p>
+                                <p class="text-[10px] text-slate-500 mt-0.5">Tasks refresh throughout the day. Check both sites regularly.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3 p-3 bg-slate-50 rounded-xl">
+                            <div class="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-3"></i></div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-900">Maintain accuracy</p>
+                                <p class="text-[10px] text-slate-500 mt-0.5">Quality work unlocks higher-paying tasks over time.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3 p-3 bg-slate-50 rounded-xl">
+                            <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-4"></i></div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-900">Track your progress</p>
+                                <p class="text-[10px] text-slate-500 mt-0.5">Return to this dashboard to monitor earnings and sessions.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Support -->
+                <div class="bg-slate-900 text-white p-5 rounded-2xl flex items-center justify-between flex-wrap gap-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center"><i class="fa-solid fa-headset"></i></div>
+                        <div>
+                            <p class="text-sm font-bold">Need help with task sites?</p>
+                            <p class="text-[11px] text-slate-400">Contact MicroLabs support via WhatsApp</p>
+                        </div>
+                    </div>
+                    <a href="#" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-semibold transition whitespace-nowrap">
+                        <i class="fa-brands fa-whatsapp mr-1.5"></i> Contact Support
+                    </a>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Mobile Bottom Nav -->
+        <nav class="md:hidden fixed bottom-0 left-0 right-0 max-w-6xl mx-auto bg-white/95 backdrop-blur-lg border-t border-slate-100 flex justify-around py-2 z-50 shadow-2xl">
+            <button onclick="switchTab('tab-overview')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-overview">
+                <i class="fa-solid fa-gauge-high text-lg"></i><span class="text-[9px] font-semibold">Home</span>
+            </button>
+            <button onclick="switchTab('tab-analytics')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-analytics">
+                <i class="fa-solid fa-chart-line text-lg"></i><span class="text-[9px] font-semibold">Stats</span>
+            </button>
+            <button onclick="switchTab('tab-unlock')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-unlock">
+                <i class="fa-solid fa-key text-lg"></i><span class="text-[9px] font-semibold">Unlock</span>
+            </button>
+            <button onclick="switchTab('tab-reviews')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-reviews">
+                <i class="fa-solid fa-star text-lg"></i><span class="text-[9px] font-semibold">Reviews</span>
+            </button>
+            <button onclick="switchTab('tab-sites')" class="dash-tab flex flex-col items-center gap-0.5 text-slate-400 py-1" data-tab="tab-sites">
+                <i class="fa-solid fa-arrow-up-right-from-square text-lg"></i><span class="text-[9px] font-semibold">Sites</span>
+            </button>
+        </nav>
+    </div>
+</div>
+
+<script>
+// ========================================================================
+// MICROLABS WORKER MONITOR — STANDALONE PROGRESS DASHBOARD
+// ========================================================================
+
+// ─── CONFIGURATION ───
+// EDIT THESE VALUES to match your Paybill/Till numbers
+const CONFIG = {
+    PAYBILL_NUMBER: '775093',         // ← Change to your Paybill number
+    PAYBILL_ACCOUNT: '101572011',     // ← Change account reference
+    TILL_NUMBER: 'not in service',    // ← Change to your Till number
+    PROXY_PRICE: 700,                 // ← Proxy only price
+    VERIFICATION_PRICE: 800,          // ← Verification code only price
+    BUNDLE_PRICE: 1500,               // ← Bundle price (proxy + verification)
+};
+
+// ─── REVIEWS DATA ───
+const REVIEWS = [
+    { name: 'Brian Otieno', role: 'Voice Labeler', location: 'Mombasa', rating: 5, text: 'The earnings dashboard is so clear. I hit my weekly target thanks to the analytics tab. Best monitoring tool I have used.', date: '1 month ago', avatar: 'BO', color: 'from-cyan-400 to-blue-500' },
+    { name: 'Mercy Akinyi', role: 'OCR Specialist', location: 'Kisumu', rating: 4, text: 'Good platform. Would love more payout options but the tracking is excellent and very easy to use.', date: '3 weeks ago', avatar: 'MA', color: 'from-pink-400 to-rose-500' },
+    { name: 'David Kamau', role: 'LiDAR Mapper', location: 'Nakuru', rating: 5, text: 'Verification process was smooth. Dashboard unlocks everything I need to see my progress. Highly recommend!', date: '1 week ago', avatar: 'DK', color: 'from-emerald-400 to-green-500' },
+    { name: 'Faith Mwende', role: 'Sentiment Analyst', location: 'Nairobi', rating: 5, text: 'The proxy + verification bundle saved me KES 100. Worth every shilling. My earnings went up 30%.', date: '2 months ago', avatar: 'FM', color: 'from-purple-400 to-indigo-500' },
+    { name: 'Kevin Mutua', role: 'Image Tagger', location: 'Machakos', rating: 4, text: 'Reliable tracking and clean interface. Helped me increase my weekly earnings by 30%. Very happy.', date: '5 days ago', avatar: 'KM', color: 'from-amber-400 to-orange-500' },
+    { name: 'Grace Wambui', role: 'Data Annotator', location: 'Eldoret', rating: 5, text: 'I love how I can see all my sessions and earnings in one place. The analytics help me plan my work week.', date: '2 weeks ago', avatar: 'GW', color: 'from-teal-400 to-cyan-500' },
+];
+
+// ─── STATE ───
+let S = {
+    user: null,
+    verified: false,
+    hasProxy: false,           // NEW: purchased proxy
+    hasVerification: false,    // NEW: purchased verification code
+    proxyPaid: false,          // KEEP for backward compat
+    verificationCode: null,
+    proxyAddress: null,
+    pendingPurchase: null,     // NEW: which package is being purchased
+    totalEarned: 0,
+    totalHours: 0,
+    totalSessions: 0,
+    accuracy: null,
+    earningsHistory: [],
+    sessionHistory: [],
+    payoutHistory: [],
+    paymentMethod: null,
+    chartsInit: false,
+    welcomeShown: false,
+    userReviews: [],          // NEW: user-submitted reviews
+};
+
+// ─── DOM READY ───
+document.addEventListener('DOMContentLoaded', () => {
+    loadState();
+    initUI();
+    renderReviews();
+});
+
+function loadState() {
+    try {
+        const saved = localStorage.getItem('microlabs_monitor_state');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            S = { ...S, ...parsed };
+            // Migration: old proxyPaid means hasProxy
+            if (S.proxyPaid && !S.hasProxy) S.hasProxy = true;
+            if (S.verificationCode && !S.hasVerification) S.hasVerification = true;
+        }
+    } catch(e) { console.warn('State load issue'); }
+}
+
+function saveState() {
+    localStorage.setItem('microlabs_monitor_state', JSON.stringify(S));
+}
+
+function initUI() {
+    if (S.user) {
+        document.getElementById('view-auth').classList.add('hidden');
+        document.getElementById('view-dashboard').classList.remove('hidden');
+        updateUserUI();
+        updateLockState();
+        updateUnlockUI();
+        switchTab('tab-overview');
+    } else {
+        document.getElementById('view-auth').classList.remove('hidden');
+        document.getElementById('view-dashboard').classList.add('hidden');
+    }
+    // Set payment numbers from config
+    document.getElementById('paybill-number').textContent = CONFIG.PAYBILL_NUMBER;
+    document.getElementById('paybill-account').textContent = CONFIG.PAYBILL_ACCOUNT;
+}
+
+// ─── AUTH ───
+function switchAuth(tab) {
+    document.querySelectorAll('.auth-tab').forEach(t => {
+        t.classList.remove('border-brand-600','text-brand-600');
+        t.classList.add('border-transparent','text-slate-400');
+    });
+    if (tab === 'register') {
+        document.getElementById('auth-tab-register').classList.add('border-brand-600','text-brand-600');
+        document.getElementById('form-register').classList.remove('hidden');
+        document.getElementById('form-login').classList.add('hidden');
+    } else {
+        document.getElementById('auth-tab-login').classList.add('border-brand-600','text-brand-600');
+        document.getElementById('form-login').classList.remove('hidden');
+        document.getElementById('form-register').classList.add('hidden');
+    }
+}
+
+document.getElementById('form-register').addEventListener('submit', (e) => {
+    e.preventDefault();
+    S.user = {
+        name: document.getElementById('reg-name').value.trim(),
+        email: document.getElementById('reg-email').value.trim(),
+        phone: `+254${document.getElementById('reg-phone').value.trim()}`
+    };
+    saveState();
+    document.getElementById('view-auth').classList.add('hidden');
+    document.getElementById('view-dashboard').classList.remove('hidden');
+    updateUserUI();
+    updateLockState();
+    updateUnlockUI();
+    switchTab('tab-overview');
+    // Show welcome modal for first-time users
+    if (!S.welcomeShown) {
+        setTimeout(() => showWelcomeModal(), 600);
+        S.welcomeShown = true;
+        saveState();
+    }
+});
+
+document.getElementById('form-login').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    S.user = {
+        name: email.split('@')[0] || 'Worker',
+        email: email,
+        phone: '+254712345678'
+    };
+    saveState();
+    document.getElementById('view-auth').classList.add('hidden');
+    document.getElementById('view-dashboard').classList.remove('hidden');
+    updateUserUI();
+    updateLockState();
+    updateUnlockUI();
+    switchTab('tab-overview');
+});
+
+function logout() {
+    if (confirm('Sign out of monitoring dashboard?')) {
+        S.user = null;
+        S.verified = false;
+        S.hasProxy = false;
+        S.hasVerification = false;
+        S.proxyPaid = false;
+        S.verificationCode = null;
+        S.proxyAddress = null;
+        saveState();
+        document.getElementById('view-auth').classList.remove('hidden');
+        document.getElementById('view-dashboard').classList.add('hidden');
+    }
+}
+
+// ─── WELCOME MODAL ───
+function showWelcomeModal() {
+    document.getElementById('welcome-modal').classList.add('show');
+}
+function closeWelcomeModal() {
+    document.getElementById('welcome-modal').classList.remove('show');
+}
+
+// ─── TAB SWITCHING ───
+function switchTab(tabId) {
+    document.querySelectorAll('.dash-content').forEach(el => el.classList.add('hidden'));
+    document.getElementById(tabId).classList.remove('hidden');
+
+    document.querySelectorAll('.dash-tab').forEach(btn => {
+        btn.classList.remove('border-brand-600', 'text-brand-600');
+        btn.classList.add('border-transparent', 'text-slate-400');
+        if (btn.getAttribute('data-tab') === tabId) {
+            btn.classList.add('border-brand-600', 'text-brand-600');
+            btn.classList.remove('border-transparent', 'text-slate-400');
+        }
+    });
+
+    // Init charts if unlocked and viewing analytics/earnings
+    if (tabId === 'tab-analytics' && S.verified && !S.chartsInit) initCharts();
+    if (tabId === 'tab-earnings' && S.verified && !S.chartsInit) initCharts();
+    if (tabId === 'tab-history' && S.verified) renderHistoryTable();
+}
+
+// ─── UPDATE UI ───
+function updateUserUI() {
+    if (!S.user) return;
+    const initial = S.user.name.charAt(0).toUpperCase();
+    document.getElementById('header-avatar').textContent = initial;
+    document.getElementById('header-name').textContent = S.user.name;
+    updateWalletUI();
+}
+
+function updateWalletUI() {
+    document.getElementById('header-wallet').textContent = `KES ${S.totalEarned.toFixed(2)}`;
+}
+
+function updateLockState() {
+    const locked = !S.verified;
+    const badgeLocked = document.getElementById('badge-locked');
+    const badgeUnlocked = document.getElementById('badge-unlocked');
+    const lockedBanner = document.getElementById('locked-banner');
+    const unlockedBanner = document.getElementById('unlocked-banner');
+    const quickUnlockCard = document.getElementById('quick-unlock-card');
+
+    if (locked) {
+        badgeLocked?.classList.remove('hidden');
+        badgeUnlocked?.classList.add('hidden');
+        lockedBanner?.classList.remove('hidden');
+        unlockedBanner?.classList.add('hidden');
+        quickUnlockCard?.classList.remove('hidden');
+    } else {
+        badgeLocked?.classList.add('hidden');
+        badgeUnlocked?.classList.remove('hidden');
+        lockedBanner?.classList.add('hidden');
+        unlockedBanner?.classList.remove('hidden');
+        quickUnlockCard?.classList.add('hidden');
+    }
+
+    document.querySelectorAll('.locked-area').forEach(el => {
+        if (locked) {
+            el.classList.add('locked');
+        } else {
+            el.classList.remove('locked');
+            revealStats(el);
+        }
+    });
+}
+
+function revealStats(el) {
+    // querySelectorAll('.text-[10px]') doesn't work — square brackets need CSS escaping.
+    // Each .locked-area may itself BE a stat-card, or contain stat-cards.
+    // Collect the element itself (if it's a stat-card) plus any nested stat-cards.
+    const statCards = [];
+    if (el.classList && el.classList.contains('stat-card')) statCards.push(el);
+    el.querySelectorAll('.stat-card').forEach(c => statCards.push(c));
+    if (statCards.length === 0) return;
+
+    const statData = [
+        { value: `KES ${S.totalEarned.toFixed(2)}`, sub: 'Lifetime earnings' },
+        { value: S.totalHours.toFixed(1), sub: 'Total verified hours' },
+        { value: String(S.totalSessions), sub: 'Completed task sessions' },
+        { value: S.accuracy !== null ? `${S.accuracy}%` : '--', sub: 'Quality score' }
+    ];
+
+    // Determine which stat this card is by reading its label text
+    statCards.forEach(card => {
+        const labelText = card.textContent.toLowerCase();
+        const valueEl = card.querySelector('.text-2xl');
+        if (!valueEl) return;
+
+        let value = null;
+        if (labelText.includes('total earned')) value = `KES ${S.totalEarned.toFixed(2)}`;
+        else if (labelText.includes('hours logged')) value = S.totalHours.toFixed(1);
+        else if (labelText.includes('sessions done')) value = String(S.totalSessions);
+        else if (labelText.includes('accuracy rate')) value = S.accuracy !== null ? `${S.accuracy}%` : '--';
+
+        if (value !== null) {
+            valueEl.textContent = value;
+            valueEl.className = 'text-2xl font-bold text-slate-900';
+        }
+        // Restore subtitle color
+        const sub = card.querySelector('span.block');
+        if (sub) sub.className = 'text-[10px] text-slate-400 block';
+        // Hide the lock icon overlay if present
+        const lockOverlay = card.querySelector('.lock-icon-overlay');
+        if (lockOverlay) lockOverlay.style.display = 'none';
+    });
+}
+
+// ─── UNLOCK UI (3 packages) ───
+function updateUnlockUI() {
+    // Update purchase status cards
+    const proxyCard = document.getElementById('status-proxy-card');
+    const verificationCard = document.getElementById('status-verification-card');
+    const proxyIcon = document.getElementById('status-proxy-icon');
+    const verificationIcon = document.getElementById('status-verification-icon');
+    const proxyText = document.getElementById('status-proxy-text');
+    const verificationText = document.getElementById('status-verification-text');
+    const proxyMark = document.getElementById('status-proxy-mark');
+    const verificationMark = document.getElementById('status-verification-mark');
+
+    // Proxy status
+    if (S.hasProxy) {
+        proxyCard.className = 'bg-white p-4 rounded-2xl border-2 border-emerald-200 shadow-sm flex items-center gap-3';
+        proxyIcon.className = 'w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center';
+        proxyText.textContent = 'Purchased';
+        proxyText.className = 'text-sm font-bold text-emerald-700';
+        proxyMark.className = 'fa-solid fa-circle-check text-emerald-500 text-lg';
+    } else {
+        proxyCard.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3';
+        proxyIcon.className = 'w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center';
+        proxyText.textContent = 'Not Purchased';
+        proxyText.className = 'text-sm font-bold text-slate-900';
+        proxyMark.className = 'fa-solid fa-circle text-slate-300 text-xs';
+    }
+
+    // Verification status
+    if (S.hasVerification) {
+        verificationCard.className = 'bg-white p-4 rounded-2xl border-2 border-emerald-200 shadow-sm flex items-center gap-3';
+        verificationIcon.className = 'w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center';
+        verificationText.textContent = S.verificationCode || 'Purchased';
+        verificationText.className = 'text-sm font-bold text-emerald-700 font-mono';
+        verificationMark.className = 'fa-solid fa-circle-check text-emerald-500 text-lg';
+    } else {
+        verificationCard.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3';
+        verificationIcon.className = 'w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center';
+        verificationText.textContent = 'Not Purchased';
+        verificationText.className = 'text-sm font-bold text-slate-900';
+        verificationMark.className = 'fa-solid fa-circle text-slate-300 text-xs';
+    }
+
+    // Update requirements check
+    const reqProxy = document.getElementById('req-proxy');
+    const reqVerification = document.getElementById('req-verification');
+    if (S.hasProxy) {
+        reqProxy.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-500"></i><span class="text-emerald-700 font-semibold">Proxy Access purchased</span>';
+    } else {
+        reqProxy.innerHTML = '<i class="fa-solid fa-circle-xmark text-slate-300"></i><span class="text-slate-500">Purchase Proxy Access (KES 700)</span>';
+    }
+    if (S.hasVerification) {
+        reqVerification.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-500"></i><span class="text-emerald-700 font-semibold">Verification Code purchased</span>';
+    } else {
+        reqVerification.innerHTML = '<i class="fa-solid fa-circle-xmark text-slate-300"></i><span class="text-slate-500">Purchase Verification Code (KES 800)</span>';
+    }
+
+    // Enable/disable unlock button
+    const unlockBtn = document.getElementById('unlock-submit-btn');
+    if (S.hasProxy && S.hasVerification) {
+        unlockBtn.disabled = false;
+        unlockBtn.className = 'w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 glow-btn';
+        unlockBtn.innerHTML = '<i class="fa-solid fa-unlock"></i> <span>Unlock Monitoring Dashboard</span>';
+        // Pre-fill verification code
+        if (S.verificationCode) {
+            document.getElementById('unlock-code').value = S.verificationCode;
+        }
+    } else {
+        unlockBtn.disabled = true;
+        unlockBtn.className = 'w-full py-3.5 bg-slate-300 text-slate-500 font-semibold rounded-xl cursor-not-allowed transition-all flex items-center justify-center gap-2';
+        unlockBtn.innerHTML = '<i class="fa-solid fa-lock"></i> <span>Purchase both items first to unlock</span>';
+    }
+
+    // Show verification code box if purchased
+    if (S.hasVerification && S.verificationCode) {
+        document.getElementById('verification-code-box').classList.remove('hidden');
+        document.getElementById('generated-code').textContent = S.verificationCode;
+    }
+}
+
+// ─── PURCHASE FLOW ───
+function buyPackage(pkg) {
+    const prices = { proxy: CONFIG.PROXY_PRICE, verification: CONFIG.VERIFICATION_PRICE, both: CONFIG.BUNDLE_PRICE };
+    const names = { proxy: 'Proxy Only', verification: 'Worker Verification Code', both: 'Proxy + Verification Bundle' };
+
+    S.pendingPurchase = pkg;
+    saveState();
+
+    // Show payment section
+    const section = document.getElementById('payment-section');
+    section.classList.remove('hidden');
+    document.getElementById('payment-package-name').textContent = names[pkg];
+    document.getElementById('payment-amount').textContent = `KES ${prices[pkg]}`;
+    document.getElementById('payment-amount-display').textContent = `KES ${prices[pkg]}`;
+
+    // Scroll to payment section
+    setTimeout(() => section.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+}
+
+function cancelPurchase() {
+    S.pendingPurchase = null;
+    document.getElementById('payment-section').classList.add('hidden');
+    document.getElementById('purchase-txn-code').value = '';
+    saveState();
+}
+
+function copyPaybillForPurchase() {
+    if (!S.pendingPurchase) return;
+    const prices = { proxy: CONFIG.PROXY_PRICE, verification: CONFIG.VERIFICATION_PRICE, both: CONFIG.BUNDLE_PRICE };
+    const amount = prices[S.pendingPurchase];
+    const txt = `M-Pesa Paybill\nBusiness: ${CONFIG.PAYBILL_NUMBER}\nAccount: ${CONFIG.PAYBILL_ACCOUNT}\nAmount: KES ${amount}`;
+    copyToClipboard(txt, 'Paybill details copied!');
+}
+
+function verifyPurchasePayment() {
+    const code = document.getElementById('purchase-txn-code').value.trim();
+    if (!code || code.length < 5) {
+        showToast('Enter a valid M-Pesa transaction code');
+        return;
+    }
+
+    const pkg = S.pendingPurchase;
+    if (!pkg) {
+        showToast('No package selected');
+        return;
+    }
+
+    // Apply purchase
+    if (pkg === 'proxy' || pkg === 'both') {
+        S.hasProxy = true;
+        S.proxyPaid = true; // backward compat
+    }
+    if (pkg === 'verification' || pkg === 'both') {
+        S.hasVerification = true;
+        // Generate verification code
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let vcode = 'ML-';
+        for (let i = 0; i < 6; i++) vcode += chars[Math.floor(Math.random() * chars.length)];
+        S.verificationCode = vcode;
+    }
+
+    S.pendingPurchase = null;
+    saveState();
+
+    // Hide payment section
+    document.getElementById('payment-section').classList.add('hidden');
+    document.getElementById('purchase-txn-code').value = '';
+
+    // Update UI
+    updateUnlockUI();
+
+    // Show success message
+    const msg = document.getElementById('proxy-status-msg');
+    msg.className = 'p-4 rounded-2xl text-sm font-semibold bg-emerald-50 border border-emerald-100 text-emerald-700';
+    let successText = '<i class="fa-solid fa-check-circle mr-2"></i> Payment verified! ';
+    if (pkg === 'proxy') {
+        successText += 'Proxy access activated. Contact admin for your proxy IP:Port.';
+    } else if (pkg === 'verification') {
+        successText += `Your verification code: <strong>${S.verificationCode}</strong>.`;
+    } else {
+        successText += `Proxy activated + verification code: <strong>${S.verificationCode}</strong>.`;
+    }
+    msg.innerHTML = successText;
+    msg.classList.remove('hidden');
+
+    showToast('Payment verified successfully!');
+    fireConfetti();
+
+    // Scroll to unlock form if both purchased
+    if (S.hasProxy && S.hasVerification) {
+        setTimeout(() => {
+            document.getElementById('unlock-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 800);
+    }
+}
+
+// ─── FINAL UNLOCK ───
+document.getElementById('unlock-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    if (!S.hasProxy || !S.hasVerification) {
+        showToast('You must purchase both Proxy and Verification Code first');
+        return;
+    }
+
+    const code = document.getElementById('unlock-code').value.trim();
+    const proxy = document.getElementById('unlock-proxy').value.trim();
+
+    // Validate verification code - must match generated code OR follow ML-XXXXXX format
+    const codeValid = (code === S.verificationCode) || /^ML-[\w]{4,}$/i.test(code);
+    if (!codeValid) {
+        showToast('Invalid verification code format. Use ML-XXXXXX');
+        return;
+    }
+
+    // Validate proxy
+    const proxyValid = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}$/.test(proxy);
+    if (!proxyValid) {
+        showToast('Invalid proxy format. Use IP:Port (e.g. 192.168.1.1:8080)');
+        return;
+    }
+
+    // UNLOCK!
+    S.verified = true;
+    S.proxyAddress = proxy;
+    generateSimulatedData();
+    saveState();
+
+    updateLockState();
+    updateUserUI();
+    switchTab('tab-overview');
+
+    showToast('Dashboard Unlocked! Your progress data is now visible.');
+    fireConfetti();
+
+    const msg = document.getElementById('proxy-status-msg');
+    msg.className = 'p-4 rounded-2xl text-sm font-semibold bg-emerald-50 border border-emerald-100 text-emerald-700';
+    msg.innerHTML = '<i class="fa-solid fa-shield-check mr-2"></i> Dashboard fully unlocked! All monitoring features are now active.';
+    msg.classList.remove('hidden');
+});
+
+// ─── CONFETTI ───
+function fireConfetti() {
+    const colors = ['#2563eb', '#16a34a', '#f59e0b', '#ef4444', '#a855f7'];
+    for (let i = 0; i < 50; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        piece.style.left = Math.random() * 100 + 'vw';
+        piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.animationDelay = Math.random() * 0.5 + 's';
+        piece.style.animationDuration = (2 + Math.random() * 2) + 's';
+        if (Math.random() > 0.5) piece.style.borderRadius = '50%';
+        document.body.appendChild(piece);
+        setTimeout(() => piece.remove(), 4000);
+    }
+}
+
+// ─── COPY FUNCTIONS ───
+function copyCode() {
+    const code = document.getElementById('generated-code').textContent;
+    copyToClipboard(code, 'Verification code copied!');
+}
+
+function copyToClipboard(text, msg) {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => showToast(msg)).catch(() => fallbackCopy(text, msg));
+    } else {
+        fallbackCopy(text, msg);
+    }
+}
+
+function fallbackCopy(text, msg) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast(msg); } catch(e) { prompt('Copy manually:', text); }
+    document.body.removeChild(ta);
+}
+
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg.startsWith('✅') ? msg : `✅ ${msg}`;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+// ─── REVIEWS ───
+function renderReviews() {
+    // Preview on overview (2 reviews)
+    const preview = document.getElementById('reviews-preview');
+    if (preview) {
+        preview.innerHTML = REVIEWS.slice(0, 2).map(r => reviewCardHTML(r, true)).join('');
+    }
+
+    // Full grid on reviews tab
+    const grid = document.getElementById('reviews-grid');
+    if (grid) {
+        const allReviews = [...S.userReviews, ...REVIEWS];
+        grid.innerHTML = allReviews.map(r => reviewCardHTML(r, false)).join('');
+    }
+}
+
+function reviewCardHTML(r, compact) {
+    const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+    if (compact) {
+        return `
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div class="flex items-center gap-2 mb-2">
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-br ${r.color} flex items-center justify-center text-white text-xs font-bold">${r.avatar}</div>
+                    <div>
+                        <p class="text-xs font-bold text-slate-900">${r.name}</p>
+                        <p class="text-[9px] text-slate-400">${r.role}</p>
+                    </div>
+                    <div class="ml-auto text-yellow-400 text-xs">${'★'.repeat(r.rating)}</div>
+                </div>
+                <p class="text-[11px] text-slate-600 line-clamp-2">${r.text}</p>
+            </div>
+        `;
+    }
+    return `
+        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition slide-up">
+            <div class="flex items-start gap-3 mb-3">
+                <div class="w-11 h-11 rounded-full bg-gradient-to-br ${r.color} flex items-center justify-center text-white font-bold flex-shrink-0">${r.avatar}</div>
+                <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                        <h5 class="font-bold text-slate-900 text-sm">${r.name}</h5>
+                    </div>
+                    <p class="text-[10px] text-slate-400">${r.role} • ${r.location} • ${r.date}</p>
+                </div>
+            </div>
+            <div class="flex text-yellow-400 mb-2 text-sm">${stars}</div>
+            <p class="text-xs text-slate-600 leading-relaxed">${r.text}</p>
+        </div>
+    `;
+}
+
+// ─── REVIEW FORM ───
+let currentReviewRating = 0;
+function setReviewRating(n) {
+    currentReviewRating = n;
+    const stars = document.querySelectorAll('#review-stars span');
+    stars.forEach((s, i) => {
+        if (i < n) {
+            s.className = 'star cursor-pointer hover:scale-110 transition';
+        } else {
+            s.className = 'star-empty cursor-pointer hover:scale-110 transition';
+        }
+    });
+}
+
+function submitReview() {
+    const text = document.getElementById('review-text').value.trim();
+    if (currentReviewRating === 0) {
+        showToast('Please select a rating');
+        return;
+    }
+    if (!text || text.length < 10) {
+        showToast('Please write a review (at least 10 characters)');
+        return;
+    }
+
+    const name = S.user ? S.user.name : 'Anonymous Worker';
+    const avatar = name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    const colors = ['from-brand-400 to-indigo-500', 'from-emerald-400 to-green-500', 'from-amber-400 to-orange-500', 'from-purple-400 to-pink-500'];
+
+    const newReview = {
+        name: name,
+        role: 'Worker',
+        location: 'Kenya',
+        rating: currentReviewRating,
+        text: text,
+        date: 'Just now',
+        avatar: avatar,
+        color: colors[Math.floor(Math.random() * colors.length)]
+    };
+
+    S.userReviews.unshift(newReview);
+    saveState();
+    renderReviews();
+
+    // Reset form
+    currentReviewRating = 0;
+    document.querySelectorAll('#review-stars span').forEach(s => s.className = 'star-empty cursor-pointer hover:scale-110 transition');
+    document.getElementById('review-text').value = '';
+
+    showToast('Review submitted! Thank you');
+    fireConfetti();
+}
+
+// ─── SIMULATED WORKER DATA ───
+function generateSimulatedData() {
+    if (S.totalSessions > 0) return;
+
+    const tasks = [
+        'Siri Voice Annotation', 'Product Categorization', 'LiDAR Mapping',
+        'Sentiment Analysis', 'LLM RLHF Alignment', 'Hate Speech Moderation',
+        'Medical Labeling', 'Crop Identification', 'Video Tracking',
+        'AI Image Tagging', 'NER Extraction', 'OCR Validation'
+    ];
+
+    const numSessions = 8 + Math.floor(Math.random() * 7);
+    let totalEarned = 0;
+    let totalHours = 0;
+    const sessionHistory = [];
+    const earningsByDay = {};
+    const taskCounts = {};
+
+    for (let i = 0; i < numSessions; i++) {
+        const daysAgo = Math.floor(Math.random() * 21);
+        const date = new Date();
+        date.setDate(date.getDate() - daysAgo);
+
+        const task = tasks[Math.floor(Math.random() * tasks.length)];
+        const hours = [3, 4, 6][Math.floor(Math.random() * 3)];
+        const rate = hours === 3 ? 850 : hours === 4 ? 1050 : 1200;
+        const full = Math.random() > 0.2;
+        const earned = full ? rate : rate * (0.3 + Math.random() * 0.5);
+        const hoursLogged = full ? hours : hours * (0.3 + Math.random() * 0.5);
+
+        totalEarned += earned;
+        totalHours += hoursLogged;
+
+        const dayKey = date.toLocaleDateString('en-KE', { weekday: 'short' });
+        earningsByDay[dayKey] = (earningsByDay[dayKey] || 0) + earned;
+        taskCounts[task] = (taskCounts[task] || 0) + 1;
+
+        sessionHistory.push({
+            date: date.toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }),
+            task: task,
+            duration: hours,
+            hoursLogged: hoursLogged.toFixed(1),
+            earnings: earned,
+            status: full ? 'Completed' : 'Partial'
+        });
+    }
+
+    sessionHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    S.totalEarned = totalEarned;
+    S.totalHours = totalHours;
+    S.totalSessions = numSessions;
+    S.accuracy = 87 + Math.floor(Math.random() * 11);
+    S.sessionHistory = sessionHistory;
+    S.earningsHistory = earningsByDay;
+    S.taskCounts = taskCounts;
+
+    S.paymentMethod = Math.random() > 0.5 ? 'M-Pesa' : 'Bank';
+
+    const payoutAmt = Math.floor(totalEarned * 0.7);
+    S.payoutHistory = [
+        { date: new Date().toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }), amount: payoutAmt, status: 'Processing' }
+    ];
+    if (totalEarned > 2000) {
+        S.payoutHistory.push({
+            date: new Date(Date.now() - 14*86400000).toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }),
+            amount: Math.floor(totalEarned * 0.3),
+            status: 'Paid'
+        });
+    }
+
+    saveState();
+}
+
+// ─── RENDER HISTORY ───
+function renderHistoryTable() {
+    const tbody = document.querySelector('#tab-history table tbody');
+    if (!tbody || !S.verified) return;
+
+    if (S.sessionHistory.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-400"><i class="fa-regular fa-clock text-2xl block mb-2 opacity-40"></i>No session history yet</td></tr>`;
+    } else {
+        tbody.innerHTML = S.sessionHistory.map(h => `
+            <tr class="hover:bg-slate-50 transition">
+                <td class="p-3 text-slate-600">${h.date}</td>
+                <td class="p-3 font-medium text-slate-800">${h.task}</td>
+                <td class="p-3 text-slate-600">${h.hoursLogged}h</td>
+                <td class="p-3 text-emerald-600 font-bold">KES ${h.earnings.toFixed(2)}</td>
+                <td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-bold ${h.status === 'Completed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">${h.status}</span></td>
+            </tr>
+        `).join('');
+    }
+
+    const totalSessions = S.sessionHistory.length;
+    const totalHours = S.sessionHistory.reduce((a, h) => a + parseFloat(h.hoursLogged), 0);
+    const totalEarnings = S.sessionHistory.reduce((a, h) => a + h.earnings, 0);
+
+    document.querySelectorAll('#tab-history .grid-cols-3 .text-xl').forEach((el, i) => {
+        if (i === 0) { el.textContent = totalSessions; el.className = 'text-xl font-bold text-slate-900 mt-1 block'; }
+        else if (i === 1) { el.textContent = totalHours.toFixed(1); el.className = 'text-xl font-bold text-slate-900 mt-1 block'; }
+        else if (i === 2) { el.textContent = `KES ${totalEarnings.toFixed(0)}`; el.className = 'text-xl font-bold text-slate-900 mt-1 block'; }
+    });
+}
+
+// ─── CHARTS ───
+function initCharts() {
+    if (S.chartsInit || !S.verified) return;
+    S.chartsInit = true;
+
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const dailyData = days.map(d => S.earningsHistory[d] || 0);
+
+    const ctx1 = document.getElementById('earnings-chart');
+    if (ctx1) {
+        new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: days,
+                datasets: [{
+                    label: 'KES',
+                    data: dailyData,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37,99,235,0.08)',
+                    fill: true, tension: 0.4,
+                    pointBackgroundColor: '#2563eb',
+                    pointBorderColor: '#fff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
+            }
+        });
+    }
+
+    const ctx2 = document.getElementById('tasks-chart');
+    if (ctx2 && S.taskCounts) {
+        const labels = Object.keys(S.taskCounts).slice(0, 6);
+        const data = labels.map(l => S.taskCounts[l]);
+        const colors = ['#2563eb','#22c55e','#a855f7','#f59e0b','#ef4444','#94a3b8'];
+        new Chart(ctx2, {
+            type: 'doughnut',
+            data: { labels, datasets: [{ data, backgroundColor: colors.slice(0, labels.length), borderWidth: 0 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'right', labels: { font: { size: 10 }, boxWidth: 12 } } }
+            }
+        });
+    }
+
+    const ctx3 = document.getElementById('hourly-chart');
+    if (ctx3) {
+        new Chart(ctx3, {
+            type: 'bar',
+            data: {
+                labels: ['0-1h','1-2h','2-3h','3-4h','4-5h','5-6h'],
+                datasets: [{
+                    label: 'Score',
+                    data: [78, 85, 92, 88, 80, 75].map(v => v + Math.floor(Math.random() * 10 - 5)),
+                    backgroundColor: ['#b9dffb','#7cc3f7','#36a5f0','#2563eb','#1d4ed8','#1e40af'],
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 100, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
+            }
+        });
+    }
+
+    const bestDay = Object.entries(S.earningsHistory).sort((a,b) => b[1] - a[1])[0];
+    document.querySelectorAll('#tab-analytics .text-xl.font-bold.mt-1').forEach((el, i) => {
+        if (i === 0) el.textContent = bestDay ? `${bestDay[0]}` : '--';
+        else if (i === 1) el.textContent = S.totalSessions > 0 ? `${(S.totalHours / S.totalSessions).toFixed(1)}h` : '--';
+        else if (i === 2) {
+            const top = Object.entries(S.taskCounts || {}).sort((a,b) => b[1] - a[1])[0];
+            el.textContent = top ? top[0].substring(0,18) : '--';
+        }
+    });
+
+    renderHistoryTable();
+
+    document.querySelectorAll('#tab-earnings .text-2xl.font-bold').forEach((el, i) => {
+        if (i === 0) el.textContent = `KES ${(S.earningsHistory ? Object.values(S.earningsHistory).reduce((a,b) => a+b, 0) : 0).toFixed(0)}`;
+        else if (i === 1) el.textContent = `KES ${S.totalEarned.toFixed(0)}`;
+        else if (i === 2) el.textContent = 'KES 0';
+        else if (i === 3) el.textContent = `KES ${(S.totalEarned * 0.7).toFixed(0)}`;
+    });
+}
+</script>
+</body>
+</html>
